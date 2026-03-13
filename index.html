@@ -5,495 +5,211 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dive Planner — Bühlmann ZHL-16C GF</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
-    <style>
-        :root {
-            --bg-dark: #0d1117;
-            --bg-panel: #161b22;
-            --bg-input: #0d1117;
-            --border: #30363d;
-            --accent: #58a6ff;
-            --accent-dim: #1f6feb;
-            --text: #c9d1d9;
-            --text-dim: #8b949e;
-            --green: #3fb950;
-            --yellow: #d29922;
-            --orange: #db6d28;
-            --red: #f85149;
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+      safelist: [
+        'bg-gh-green/90', 'bg-gh-red/90', 'bg-gh-yellow/90',
+        'opacity-100', 'translate-y-0',
+        'text-gh-accent', 'border-b-gh-accent',
+        'text-gh-muted', 'border-b-transparent',
+      ],
+      theme: {
+        extend: {
+          colors: {
+            'gh-dark': '#0d1117',
+            'gh-panel': '#161b22',
+            'gh-border': '#30363d',
+            'gh-accent': '#58a6ff',
+            'gh-accent-dim': '#1f6feb',
+            'gh-text': '#c9d1d9',
+            'gh-muted': '#8b949e',
+            'gh-green': '#3fb950',
+            'gh-yellow': '#d29922',
+            'gh-orange': '#db6d28',
+            'gh-red': '#f85149',
+          }
         }
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-            background: var(--bg-dark);
-            color: var(--text);
-            font-size: 14px;
-            line-height: 1.5;
+      }
+    }
+    </script>
+    <style type="text/tailwindcss">
+        @layer base {
+            td { @apply px-2 py-1 border-b border-gh-border; }
+            input[type="number"]:focus,
+            input[type="text"]:focus,
+            select:focus {
+                @apply outline-none border-gh-accent shadow-[0_0_0_2px_rgba(88,166,255,0.15)];
+            }
         }
-        .container { max-width: 1500px; margin: 0 auto; padding: 16px; }
-        header { text-align: center; padding: 16px 0 24px; }
-        header h1 { color: var(--accent); font-size: 1.6em; font-weight: 600; }
-        header p { color: var(--text-dim); font-size: 0.9em; }
-
-        .layout { display: grid; grid-template-columns: 380px 1fr; gap: 20px; }
-        @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
-
-        .panel {
-            background: var(--bg-panel);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 16px;
+        @layer components {
+            .dive-tooltip {
+                @apply absolute pointer-events-none bg-[rgba(22,27,34,0.95)] border border-gh-border rounded-md px-2.5 py-2 text-[0.78em] text-gh-text leading-relaxed whitespace-nowrap z-[100] shadow-[0_4px_12px_rgba(0,0,0,0.4)];
+            }
         }
-        .panel h2 {
-            color: var(--accent);
-            font-size: 1.1em;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid var(--border);
-        }
-        .panel h3 {
-            color: var(--text);
-            font-size: 0.95em;
-            margin: 14px 0 8px;
-        }
-
-        .form-row { display: flex; gap: 10px; margin-bottom: 10px; }
-        .form-row .form-group { flex: 1; }
-        .form-group { margin-bottom: 10px; }
-        .form-group label {
-            display: block;
-            font-size: 0.8em;
-            color: var(--text-dim);
-            margin-bottom: 3px;
-        }
-        input[type="number"], input[type="text"], select {
-            width: 100%;
-            padding: 6px 8px;
-            background: var(--bg-input);
-            color: var(--text);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            font-size: 0.9em;
-        }
-        input:focus, select:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 2px rgba(88,166,255,0.15);
-        }
-
-        button {
-            padding: 6px 14px;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.85em;
-            font-weight: 500;
-            transition: all 0.15s;
-        }
-        .btn-primary {
-            background: var(--accent-dim);
-            color: #fff;
-            border-color: var(--accent-dim);
-        }
-        .btn-primary:hover { background: var(--accent); }
-        .btn-secondary {
-            background: transparent;
-            color: var(--text);
-        }
-        .btn-secondary:hover { background: var(--border); }
-        .btn-danger {
-            background: transparent;
-            color: var(--red);
-            border-color: var(--red);
-        }
-        .btn-danger:hover { background: rgba(248,81,73,0.15); }
-        .btn-small { padding: 3px 8px; font-size: 0.8em; }
-
-        .btn-row { display: flex; gap: 8px; margin-top: 12px; }
-        .btn-row button { flex: 1; }
-
-        .waypoint-list {
-            max-height: 200px;
-            overflow-y: auto;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            background: var(--bg-input);
-        }
-        .waypoint-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 5px 8px;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.85em;
-        }
-        .waypoint-item:last-child { border-bottom: none; }
-        .wp-empty { text-align: center; padding: 16px; color: var(--text-dim); }
-
-        .segment-preview {
-            font-size: 0.8em;
-            color: var(--text-dim);
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            padding: 8px;
-            margin-top: 8px;
-            max-height: 160px;
-            overflow-y: auto;
-        }
-        .segment-preview .seg {
-            padding: 2px 0;
-            display: flex;
-            gap: 6px;
-        }
-        .seg-label { color: var(--accent); min-width: 60px; }
-        .seg-time { color: var(--text-dim); min-width: 80px; text-align: right; }
-
-        .saved-list { margin-top: 8px; }
-        .saved-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 6px 8px;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            margin-bottom: 4px;
-            background: var(--bg-input);
-        }
-        .saved-item-name { font-weight: 500; color: var(--accent); font-size: 0.85em; }
-        .saved-item-meta { color: var(--text-dim); font-size: 0.75em; }
-
-        /* Results */
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-        .summary-card {
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            padding: 10px;
-            border-left: 3px solid var(--accent);
-        }
-        .summary-card .label { font-size: 0.75em; color: var(--text-dim); }
-        .summary-card .value { font-size: 1.4em; font-weight: 600; color: var(--green); }
-        .summary-card .unit { font-size: 0.7em; color: var(--text-dim); }
-        .summary-card.warning .value { color: var(--yellow); }
-        .summary-card.danger .value { color: var(--red); }
-
-        .chart-wrap {
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            padding: 12px;
-            margin-bottom: 16px;
-        }
-        .chart-wrap h3 { font-size: 0.9em; color: var(--text-dim); margin-bottom: 8px; }
-        #depthChart { width: 100%; position: relative; }
-        #depthChart svg { display: block; width: 100%; }
-        .dive-tooltip {
-            position: absolute;
-            pointer-events: none;
-            background: rgba(22,27,34,0.95);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 8px 10px;
-            font-size: 0.78em;
-            color: var(--text);
-            line-height: 1.5;
-            white-space: nowrap;
-            z-index: 100;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-        }
-
-        .tissue-bars { margin-bottom: 16px; }
-        .tissue-bar-row {
-            display: flex;
-            align-items: center;
-            margin-bottom: 3px;
-            font-size: 0.75em;
-        }
-        .tissue-bar-label {
-            width: 28px;
-            text-align: right;
-            padding-right: 6px;
-            color: var(--text-dim);
-        }
-        .tissue-bar-track {
-            flex: 1;
-            height: 14px;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 2px;
-            overflow: hidden;
-            position: relative;
-        }
-        .tissue-bar-fill {
-            height: 100%;
-            border-radius: 2px;
-            transition: width 0.3s;
-        }
-        .tissue-bar-pct {
-            width: 42px;
-            text-align: right;
-            padding-left: 6px;
-            font-size: 0.85em;
-        }
-        .tissue-bar-ht {
-            width: 48px;
-            text-align: right;
-            color: var(--text-dim);
-            padding-left: 4px;
-        }
-
-        .tabs {
-            display: flex;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 10px;
-        }
-        .tab-btn {
-            background: none;
-            border: none;
-            color: var(--text-dim);
-            padding: 8px 14px;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            font-size: 0.85em;
-        }
-        .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-        .tab-btn:hover { color: var(--text); }
-        .tab-pane { display: none; }
-        .tab-pane.active { display: block; }
-
-        table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
-        th { background: var(--bg-input); color: var(--accent); font-weight: 600; text-align: left; padding: 6px 8px; position: sticky; top: 0; }
-        td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
-        .table-scroll { max-height: 400px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; }
-
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 10px 18px;
-            border-radius: 6px;
-            font-size: 0.85em;
-            font-weight: 500;
-            opacity: 0;
-            transform: translateY(10px);
-            transition: all 0.3s;
-            z-index: 1000;
-        }
-        .toast.show { opacity: 1; transform: translateY(0); }
-        .toast.success { background: rgba(63,185,80,0.9); color: #fff; }
-        .toast.error { background: rgba(248,81,73,0.9); color: #fff; }
-        .toast.warn { background: rgba(210,153,34,0.9); color: #fff; }
-        #placeholder { text-align: center; padding: 60px 20px; color: var(--text-dim); }
-        #placeholder .icon { font-size: 3em; margin-bottom: 12px; }
-        #resultsArea { display: none; }
-        .deco-banner {
-            background: rgba(248,81,73,0.15);
-            border: 1px solid var(--red);
-            border-radius: 6px;
-            padding: 12px 16px;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .deco-banner .icon { font-size: 1.5em; }
-        .deco-banner .text { flex: 1; }
-        .deco-banner .text strong { color: var(--red); }
-        .deco-banner .detail { font-size: 0.85em; color: var(--text-dim); }
-        .deco-stops-table { margin-top: 8px; }
-        .deco-stops-table td { padding: 2px 12px 2px 0; font-size: 0.85em; }
-        .safety-banner {
-            background: rgba(63,185,80,0.1);
-            border: 1px solid var(--green);
-            border-radius: 6px;
-            padding: 10px 16px;
-            margin-bottom: 16px;
-            font-size: 0.9em;
-            color: var(--green);
-        }
-        .gas-banner {
-            background: rgba(210,153,34,0.15);
-            border: 1px solid var(--orange);
-            border-radius: 6px;
-            padding: 12px 16px;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .gas-banner .icon { font-size: 1.5em; }
-        .gas-banner .text { flex: 1; }
-        .gas-banner .text strong { color: var(--orange); }
-        .gas-banner .detail { font-size: 0.85em; color: var(--text-dim); }
-        .gas-banner.critical {
-            background: rgba(248,81,73,0.15);
-            border-color: var(--red);
-        }
-        .gas-banner.critical .text strong { color: var(--red); }
-        .checkbox-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            margin-bottom: 10px;
-        }
-        .checkbox-row input[type="checkbox"] {
-            width: auto;
-            accent-color: var(--accent);
-        }
-        .checkbox-row label { margin: 0; font-size: 0.9em; color: var(--text); }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { @apply bg-gh-dark; }
+        ::-webkit-scrollbar-thumb { @apply bg-gh-border rounded; }
     </style>
 </head>
-<body>
-<div class="container">
-    <header>
-        <h1>🤿 Dive Planner — Bühlmann ZHL-16C GF</h1>
-        <p>Plan your dive. Dive your plan.</p>
+<body class="bg-gh-dark text-gh-text text-sm leading-normal">
+<div class="max-w-[1500px] mx-auto px-4 py-4">
+    <header class="text-center py-4 pb-6">
+        <h1 class="text-gh-accent text-2xl font-semibold">🤿 Dive Planner — Bühlmann ZHL-16C GF</h1>
+        <p class="text-gh-muted text-sm">Plan your dive. Dive your plan.</p>
     </header>
-    <div class="layout">
+    <div class="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-5">
         <!-- === INPUT PANEL === -->
         <div>
-            <div class="panel">
-                <h2>⚙️ Dive Settings</h2>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Tank Volume (L)</label>
-                        <input type="number" id="tankVolume" value="12" min="1" max="50" step="0.5">
+            <div class="bg-gh-panel border border-gh-border rounded-md p-4">
+                <h2 class="text-gh-accent text-[1.1em] font-semibold mb-3 pb-2 border-b border-gh-border">⚙️ Dive Settings</h2>
+                <div class="flex gap-2.5 mb-2.5">
+                    <div class="flex-1">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">Tank Volume (L)</label>
+                        <input type="number" id="tankVolume" value="12" min="1" max="50" step="0.5" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
                     </div>
-                    <div class="form-group">
-                        <label>Start Pressure (bar)</label>
-                        <input type="number" id="tankPressure" value="200" min="50" max="300" step="5">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>RMV — Respiratory Minute Volume (L/min at surface)</label>
-                    <input type="number" id="rmv" value="20" min="5" max="40" step="1">
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>GF Low (%)</label>
-                        <input type="number" id="gfLow" value="40" min="5" max="100" step="5">
-                    </div>
-                    <div class="form-group">
-                        <label>GF High (%)</label>
-                        <input type="number" id="gfHigh" value="85" min="5" max="100" step="5">
+                    <div class="flex-1">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">Start Pressure (bar)</label>
+                        <input type="number" id="tankPressure" value="200" min="50" max="300" step="5" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
                     </div>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Descent Rate (m/min)</label>
-                        <input type="number" id="descentRate" value="20" min="1" max="40" step="1">
+                <div class="mb-2.5">
+                    <label class="block text-[0.8em] text-gh-muted mb-0.5">RMV — Respiratory Minute Volume (L/min at surface)</label>
+                    <input type="number" id="rmv" value="20" min="5" max="40" step="1" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
+                </div>
+                <div class="flex gap-2.5 mb-2.5">
+                    <div class="flex-1">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">GF Low (%)</label>
+                        <input type="number" id="gfLow" value="40" min="5" max="100" step="5" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
                     </div>
-                    <div class="form-group">
-                        <label>Ascent Rate (m/min)</label>
-                        <input type="number" id="ascentRate" value="10" min="1" max="20" step="1">
+                    <div class="flex-1">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">GF High (%)</label>
+                        <input type="number" id="gfHigh" value="85" min="5" max="100" step="5" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
                     </div>
                 </div>
-                <h3>🛑 Safety Stop</h3>
-                <div class="checkbox-row">
-                    <input type="checkbox" id="safetyStopEnabled" checked>
-                    <label for="safetyStopEnabled">Enable safety stop</label>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Depth (m)</label>
-                        <input type="number" id="safetyStopDepth" value="5" min="3" max="10" step="1">
+                <div class="flex gap-2.5 mb-2.5">
+                    <div class="flex-1">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">Descent Rate (m/min)</label>
+                        <input type="number" id="descentRate" value="20" min="1" max="40" step="1" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
                     </div>
-                    <div class="form-group">
-                        <label>Duration (min)</label>
-                        <input type="number" id="safetyStopTime" value="5" min="1" max="10" step="1">
+                    <div class="flex-1">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">Ascent Rate (m/min)</label>
+                        <input type="number" id="ascentRate" value="10" min="1" max="20" step="1" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
+                    </div>
+                </div>
+                <h3 class="text-gh-text text-[0.95em] mt-3.5 mb-2">🛑 Safety Stop</h3>
+                <div class="flex items-center gap-1.5 mb-2.5">
+                    <input type="checkbox" id="safetyStopEnabled" checked class="accent-gh-accent">
+                    <label for="safetyStopEnabled" class="text-[0.9em] text-gh-text">Enable safety stop</label>
+                </div>
+                <div class="flex gap-2.5 mb-2.5">
+                    <div class="flex-1">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">Depth (m)</label>
+                        <input type="number" id="safetyStopDepth" value="5" min="3" max="10" step="1" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">Duration (min)</label>
+                        <input type="number" id="safetyStopTime" value="5" min="1" max="10" step="1" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
                     </div>
                 </div>
             </div>
 
-            <div class="panel" style="margin-top:12px">
-                <h2>📍 Waypoints</h2>
-                <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:10px">
+            <div class="bg-gh-panel border border-gh-border rounded-md p-4 mt-3">
+                <h2 class="text-gh-accent text-[1.1em] font-semibold mb-3 pb-2 border-b border-gh-border">📍 Waypoints</h2>
+                <p class="text-[0.8em] text-gh-muted mb-2.5">
                     Each waypoint: target depth + time at that depth. Transitions are computed automatically.
                 </p>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Depth (m)</label>
-                        <input type="number" id="wpDepth" value="30" min="0" max="120" step="1">
+                <div class="flex gap-2.5 mb-2.5">
+                    <div class="flex-1">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">Depth (m)</label>
+                        <input type="number" id="wpDepth" value="30" min="0" max="120" step="1" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
                     </div>
-                    <div class="form-group">
-                        <label>Bottom Time (min)</label>
-                        <input type="number" id="wpTime" value="20" min="0" max="600" step="1">
+                    <div class="flex-1">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">Bottom Time (min)</label>
+                        <input type="number" id="wpTime" value="20" min="0" max="600" step="1" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
                     </div>
                 </div>
-                <button class="btn-primary" onclick="addWaypoint()" style="width:100%">+ Add Waypoint</button>
+                <button class="w-full px-3.5 py-1.5 border rounded cursor-pointer text-[0.85em] font-medium transition-all duration-150 bg-gh-accent-dim text-white border-gh-accent-dim hover:bg-gh-accent" onclick="addWaypoint()">+ Add Waypoint</button>
 
-                <div class="waypoint-list" id="wpList" style="margin-top:10px">
-                    <div class="wp-empty">No waypoints defined</div>
+                <div id="wpList" class="max-h-48 overflow-y-auto border border-gh-border rounded bg-gh-dark mt-2.5">
+                    <div class="text-center p-4 text-gh-muted">No waypoints defined</div>
                 </div>
 
                 <div id="segmentPreview"></div>
 
-                <div class="btn-row">
-                    <button class="btn-primary" onclick="calculateDive()">🔄 Calculate</button>
-                    <button class="btn-secondary" onclick="clearAll()">Clear</button>
+                <div class="flex gap-2 mt-3">
+                    <button class="flex-1 px-3.5 py-1.5 border rounded cursor-pointer text-[0.85em] font-medium transition-all duration-150 bg-gh-accent-dim text-white border-gh-accent-dim hover:bg-gh-accent" onclick="calculateDive()">🔄 Calculate</button>
+                    <button class="flex-1 px-3.5 py-1.5 border border-gh-border rounded cursor-pointer text-[0.85em] font-medium transition-all duration-150 bg-transparent text-gh-text hover:bg-gh-border" onclick="clearAll()">Clear</button>
                 </div>
             </div>
 
-            <div class="panel" style="margin-top:12px">
-                <h2>💾 Saved Dives</h2>
-                <div class="form-group">
-                    <label>Dive Name</label>
-                    <input type="text" id="diveName" placeholder="My dive plan">
+            <div class="bg-gh-panel border border-gh-border rounded-md p-4 mt-3">
+                <h2 class="text-gh-accent text-[1.1em] font-semibold mb-3 pb-2 border-b border-gh-border">💾 Saved Dives</h2>
+                <div class="mb-2.5">
+                    <label class="block text-[0.8em] text-gh-muted mb-0.5">Dive Name</label>
+                    <input type="text" id="diveName" placeholder="My dive plan" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
                 </div>
-                <button class="btn-secondary" onclick="saveDive()" style="width:100%">Save Current Dive</button>
-                <div class="saved-list" id="savedList"></div>
+                <button class="w-full px-3.5 py-1.5 border border-gh-border rounded cursor-pointer text-[0.85em] font-medium transition-all duration-150 bg-transparent text-gh-text hover:bg-gh-border" onclick="saveDive()">Save Current Dive</button>
+                <div id="savedList" class="mt-2"></div>
             </div>
         </div>
 
         <!-- === RESULTS PANEL === -->
         <div>
-            <div id="placeholder" class="panel">
-                <div class="icon">🌊</div>
+            <div id="placeholder" class="bg-gh-panel border border-gh-border rounded-md p-4 text-center py-16 text-gh-muted">
+                <div class="text-5xl mb-3">🌊</div>
                 <p>Add waypoints and click <strong>Calculate</strong> to see your dive plan.</p>
             </div>
-            <div id="resultsArea">
+            <div id="resultsArea" style="display:none">
                 <div id="decoBanner"></div>
                 <div id="safetyBanner"></div>
                 <div id="gasBanner"></div>
-                <div class="panel">
-                    <h2>📊 Dive Summary</h2>
-                    <div class="summary-grid" id="summaryGrid"></div>
+                <div class="bg-gh-panel border border-gh-border rounded-md p-4">
+                    <h2 class="text-gh-accent text-[1.1em] font-semibold mb-3 pb-2 border-b border-gh-border">📊 Dive Summary</h2>
+                    <div id="summaryGrid" class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2.5 mb-4"></div>
                 </div>
-                <div class="panel" style="margin-top:12px">
-                    <div class="chart-wrap">
-                        <h3>Depth Profile</h3>
-                        <div id="depthChart"></div>
+                <div class="bg-gh-panel border border-gh-border rounded-md p-4 mt-3">
+                    <div class="bg-gh-dark border border-gh-border rounded p-3 mb-4">
+                        <h3 class="text-[0.9em] text-gh-muted mb-2">Depth Profile</h3>
+                        <div id="depthChart" class="w-full relative"></div>
                     </div>
-                    <div class="chart-wrap">
-                        <h3>Tissue Loading (end of dive)</h3>
-                        <div class="tissue-bars" id="tissueBars"></div>
+                    <div class="bg-gh-dark border border-gh-border rounded p-3 mb-4">
+                        <h3 class="text-[0.9em] text-gh-muted mb-2">Tissue Loading (end of dive)</h3>
+                        <div id="tissueBars" class="mb-4"></div>
                     </div>
-                    <div class="tabs">
-                        <button class="tab-btn active" onclick="switchTab(event,'tabTimeline')">Timeline</button>
-                        <button class="tab-btn" onclick="switchTab(event,'tabGas')">Gas Profile</button>
-                        <button class="tab-btn" onclick="switchTab(event,'tabTissues')">Tissue Details</button>
+                    <div class="flex border-b border-gh-border mb-2.5">
+                        <button class="tab-btn bg-transparent border-0 text-gh-accent px-3.5 py-2 cursor-pointer border-b-2 border-b-gh-accent text-[0.85em]" onclick="switchTab(event,'tabTimeline')">Timeline</button>
+                        <button class="tab-btn bg-transparent border-0 text-gh-muted px-3.5 py-2 cursor-pointer border-b-2 border-b-transparent text-[0.85em] hover:text-gh-text" onclick="switchTab(event,'tabGas')">Gas Profile</button>
+                        <button class="tab-btn bg-transparent border-0 text-gh-muted px-3.5 py-2 cursor-pointer border-b-2 border-b-transparent text-[0.85em] hover:text-gh-text" onclick="switchTab(event,'tabTissues')">Tissue Details</button>
                     </div>
-                    <div id="tabTimeline" class="tab-pane active">
-                        <div class="table-scroll"><table><thead><tr>
-                            <th>Time</th><th>Depth (m)</th><th>Phase</th>
-                            <th>Tank (bar)</th><th>NDL (min)</th><th>Ceiling (m)</th>
-                            <th>Lead Tissue</th>
+                    <div id="tabTimeline" class="tab-pane">
+                        <div class="max-h-96 overflow-y-auto border border-gh-border rounded"><table class="w-full border-collapse text-[0.8em]"><thead><tr>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Time</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Depth (m)</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Phase</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Tank (bar)</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">NDL (min)</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Ceiling (m)</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Lead Tissue</th>
                         </tr></thead><tbody id="tblTimeline"></tbody></table></div>
                     </div>
-                    <div id="tabGas" class="tab-pane">
-                        <div class="table-scroll"><table><thead><tr>
-                            <th>Time</th><th>Depth (m)</th><th>Amb. Press (bar)</th>
-                            <th>Gas Rate (bar/min)</th><th>Tank (bar)</th><th>Used (L sfc eq)</th>
+                    <div id="tabGas" class="tab-pane hidden">
+                        <div class="max-h-96 overflow-y-auto border border-gh-border rounded"><table class="w-full border-collapse text-[0.8em]"><thead><tr>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Time</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Depth (m)</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Amb. Press (bar)</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Gas Rate (bar/min)</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Tank (bar)</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Used (L sfc eq)</th>
                         </tr></thead><tbody id="tblGas"></tbody></table></div>
                     </div>
-                    <div id="tabTissues" class="tab-pane">
-                        <div class="table-scroll"><table><thead><tr>
-                            <th>#</th><th>Half-time</th><th>pN₂ (bar)</th>
-                            <th>Ceiling (m)</th><th>Load %</th>
+                    <div id="tabTissues" class="tab-pane hidden">
+                        <div class="max-h-96 overflow-y-auto border border-gh-border rounded"><table class="w-full border-collapse text-[0.8em]"><thead><tr>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">#</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Half-time</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">pN₂ (bar)</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Ceiling (m)</th>
+                            <th class="bg-gh-dark text-gh-accent font-semibold text-left px-2 py-1.5 sticky top-0">Load %</th>
                         </tr></thead><tbody id="tblTissues"></tbody></table></div>
                     </div>
                 </div>
@@ -501,7 +217,7 @@
         </div>
     </div>
 </div>
-<div class="toast" id="toast"></div>
+<div id="toast" class="fixed bottom-5 right-5 rounded-md text-sm font-medium px-4 py-2.5 transition-all duration-300 z-[1000] opacity-0 translate-y-2.5 pointer-events-none text-white"></div>
 
 <script>
 "use strict";
@@ -1236,17 +952,17 @@ function drawTissueBars(containerId, tissues) {
     el.innerHTML = tissues.map(t => {
         const pct = Math.max(0, Math.min(t.loading, 120));
         let color;
-        if (t.loading > 100) color = 'var(--red)';
-        else if (t.loading > 80) color = 'var(--orange)';
-        else if (t.loading > 60) color = 'var(--yellow)';
-        else color = 'var(--green)';
-        return `<div class="tissue-bar-row">
-            <span class="tissue-bar-label">${t.num}</span>
-            <div class="tissue-bar-track">
-                <div class="tissue-bar-fill" style="width:${pct}%;background:${color}"></div>
+        if (t.loading > 100) color = '#f85149';
+        else if (t.loading > 80) color = '#db6d28';
+        else if (t.loading > 60) color = '#d29922';
+        else color = '#3fb950';
+        return `<div class="flex items-center mb-0.5 text-[0.75em]">
+            <span class="w-7 text-right pr-1.5 text-gh-muted">${t.num}</span>
+            <div class="flex-1 h-3.5 bg-gh-dark border border-gh-border rounded-sm overflow-hidden">
+                <div class="h-full rounded-sm transition-all duration-300" style="width:${pct}%;background:${color}"></div>
             </div>
-            <span class="tissue-bar-pct" style="color:${color}">${t.loading.toFixed(0)}%</span>
-            <span class="tissue-bar-ht">${t.halfTime}m</span>
+            <span class="w-10 text-right pl-1.5 text-[0.85em]" style="color:${color}">${t.loading.toFixed(0)}%</span>
+            <span class="w-12 text-right text-gh-muted pl-1">${t.halfTime}m</span>
         </div>`;
     }).join('');
 }
@@ -1307,17 +1023,17 @@ function moveWaypoint(i, dir) {
 function renderWaypoints() {
     const el = document.getElementById('wpList');
     if (waypoints.length === 0) {
-        el.innerHTML = '<div class="wp-empty">No waypoints defined</div>';
+        el.innerHTML = '<div class="text-center p-4 text-gh-muted">No waypoints defined</div>';
         document.getElementById('segmentPreview').innerHTML = '';
         return;
     }
     el.innerHTML = waypoints.map((wp, i) => `
-        <div class="waypoint-item">
+        <div class="flex items-center justify-between px-2 py-1 border-b border-gh-border last:border-b-0 text-[0.85em]">
             <span><strong>${wp.depth}m</strong> for ${wp.time} min</span>
-            <span>
-                <button class="btn-small btn-secondary" onclick="moveWaypoint(${i},-1)">&uarr;</button>
-                <button class="btn-small btn-secondary" onclick="moveWaypoint(${i},1)">&darr;</button>
-                <button class="btn-small btn-danger" onclick="removeWaypoint(${i})">&times;</button>
+            <span class="flex gap-1">
+                <button class="px-2 py-0.5 text-[0.8em] border border-gh-border rounded cursor-pointer bg-transparent text-gh-text hover:bg-gh-border" onclick="moveWaypoint(${i},-1)">↑</button>
+                <button class="px-2 py-0.5 text-[0.8em] border border-gh-border rounded cursor-pointer bg-transparent text-gh-text hover:bg-gh-border" onclick="moveWaypoint(${i},1)">↓</button>
+                <button class="px-2 py-0.5 text-[0.8em] rounded cursor-pointer bg-transparent text-gh-red border border-gh-red hover:bg-gh-red/15" onclick="removeWaypoint(${i})">×</button>
             </span>
         </div>
     `).join('');
@@ -1327,7 +1043,7 @@ function renderWaypoints() {
 function renderSegmentPreview() {
     const cfg = getConfig();
     const el = document.getElementById('segmentPreview');
-    let html = '<div class="segment-preview"><strong style="color:var(--text-dim)">Profile Preview:</strong>';
+    let html = '<div class="text-[0.8em] text-gh-muted bg-gh-dark border border-gh-border rounded p-2 mt-2 max-h-40 overflow-y-auto"><strong class="text-gh-muted">Profile Preview:</strong>';
     let prevD = 0, cumT = 0;
 
     for (const wp of waypoints) {
@@ -1336,47 +1052,46 @@ function renderSegmentPreview() {
         const tTrans = Math.abs(diff) / rate;
         if (Math.abs(diff) > 0.1) {
             const phase = diff > 0 ? '↓ Descent' : '↑ Ascent';
-            html += `<div class="seg"><span class="seg-label">${phase}</span>
+            html += `<div class="py-0.5 flex gap-1.5"><span class="text-gh-accent min-w-[60px]">${phase}</span>
                 <span>${prevD}m → ${wp.depth}m @ ${rate} m/min</span>
-                <span class="seg-time">${fmtTime(tTrans)}</span></div>`;
+                <span class="text-gh-muted min-w-[80px] text-right">${fmtTime(tTrans)}</span></div>`;
             cumT += tTrans;
         }
         if (wp.time > 0) {
-            html += `<div class="seg"><span class="seg-label">⬤ Bottom</span>
+            html += `<div class="py-0.5 flex gap-1.5"><span class="text-gh-accent min-w-[60px]">⬤ Bottom</span>
                 <span>${wp.depth}m for ${wp.time} min</span>
-                <span class="seg-time">${fmtTime(wp.time)}</span></div>`;
+                <span class="text-gh-muted min-w-[80px] text-right">${fmtTime(wp.time)}</span></div>`;
             cumT += wp.time;
         }
         prevD = wp.depth;
     }
     if (prevD > 0.1) {
-        // Safety stop preview
         if (cfg.safetyStopEnabled && prevD > cfg.safetyStopDepth) {
             const tAscToSafety = (prevD - cfg.safetyStopDepth) / cfg.ascentRate;
-            html += `<div class="seg"><span class="seg-label">↑ Ascent</span>
+            html += `<div class="py-0.5 flex gap-1.5"><span class="text-gh-accent min-w-[60px]">↑ Ascent</span>
                 <span>${prevD}m → ${cfg.safetyStopDepth}m @ ${cfg.ascentRate} m/min</span>
-                <span class="seg-time">${fmtTime(tAscToSafety)}</span></div>`;
+                <span class="text-gh-muted min-w-[80px] text-right">${fmtTime(tAscToSafety)}</span></div>`;
             cumT += tAscToSafety;
-            html += `<div class="seg"><span class="seg-label" style="color:var(--yellow)">🛑 Safety</span>
+            html += `<div class="py-0.5 flex gap-1.5"><span class="text-gh-yellow min-w-[60px]">🛑 Safety</span>
                 <span>${cfg.safetyStopDepth}m for ${cfg.safetyStopTime} min</span>
-                <span class="seg-time">${fmtTime(cfg.safetyStopTime)}</span></div>`;
+                <span class="text-gh-muted min-w-[80px] text-right">${fmtTime(cfg.safetyStopTime)}</span></div>`;
             cumT += cfg.safetyStopTime;
             const tAscFinal = cfg.safetyStopDepth / cfg.ascentRate;
-            html += `<div class="seg"><span class="seg-label">↑ Ascent</span>
+            html += `<div class="py-0.5 flex gap-1.5"><span class="text-gh-accent min-w-[60px]">↑ Ascent</span>
                 <span>${cfg.safetyStopDepth}m → 0m @ ${cfg.ascentRate} m/min</span>
-                <span class="seg-time">${fmtTime(tAscFinal)}</span></div>`;
+                <span class="text-gh-muted min-w-[80px] text-right">${fmtTime(tAscFinal)}</span></div>`;
             cumT += tAscFinal;
         } else {
             const tAsc = prevD / cfg.ascentRate;
-            html += `<div class="seg"><span class="seg-label">↑ Ascent</span>
+            html += `<div class="py-0.5 flex gap-1.5"><span class="text-gh-accent min-w-[60px]">↑ Ascent</span>
                 <span>${prevD}m → 0m @ ${cfg.ascentRate} m/min</span>
-                <span class="seg-time">${fmtTime(tAsc)}</span></div>`;
+                <span class="text-gh-muted min-w-[80px] text-right">${fmtTime(tAsc)}</span></div>`;
             cumT += tAsc;
         }
     }
-    html += `<div class="seg" style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">
-        <span class="seg-label"><strong>Total</strong></span><span></span>
-        <span class="seg-time"><strong>${fmtTime(cumT)}</strong></span></div>`;
+    html += `<div class="py-1 flex gap-1.5 border-t border-gh-border mt-1">
+        <span class="text-gh-accent min-w-[60px]"><strong>Total</strong></span><span></span>
+        <span class="text-gh-muted min-w-[80px] text-right"><strong>${fmtTime(cumT)}</strong></span></div>`;
     html += '</div>';
     el.innerHTML = html;
 }
@@ -1410,14 +1125,14 @@ function displayResults(res) {
     const decoBanner = document.getElementById('decoBanner');
     if (s.inDeco) {
         let stopsHtml = res.decoStops.map(ds =>
-            `<tr><td><strong>${ds.depth}m</strong></td><td>${ds.time} min</td></tr>`
+            `<tr><td class="py-0.5 pr-3 text-[0.85em]"><strong>${ds.depth}m</strong></td><td class="py-0.5 pr-3 text-[0.85em]">${ds.time} min</td></tr>`
         ).join('');
-        decoBanner.innerHTML = `<div class="deco-banner">
-            <div class="icon">⚠️</div>
-            <div class="text">
-                <strong>DECOMPRESSION DIVE</strong> — NDL exceeded at ${fmtTime(res.ndlExceededTime || 0)}<br>
-                <span class="detail">Mandatory deco stops required. Total deco time: ${s.totalDecoTime} min</span>
-                <table class="deco-stops-table">${stopsHtml}</table>
+        decoBanner.innerHTML = `<div class="bg-gh-red/15 border border-gh-red rounded-md px-4 py-3 mb-4 flex items-center gap-2.5">
+            <div class="text-2xl">⚠️</div>
+            <div class="flex-1">
+                <strong class="text-gh-red">DECOMPRESSION DIVE</strong> — NDL exceeded at ${fmtTime(res.ndlExceededTime || 0)}<br>
+                <span class="text-[0.85em] text-gh-muted">Mandatory deco stops required. Total deco time: ${s.totalDecoTime} min</span>
+                <table class="mt-2">${stopsHtml}</table>
             </div>
         </div>`;
     } else {
@@ -1428,12 +1143,12 @@ function displayResults(res) {
     const safetyBanner = document.getElementById('safetyBanner');
     if (res.didSafetyStop && !s.inDeco) {
         const cfg = getConfig();
-        safetyBanner.innerHTML = `<div class="safety-banner">
+        safetyBanner.innerHTML = `<div class="bg-gh-green/10 border border-gh-green rounded-md px-4 py-2.5 mb-4 text-[0.9em] text-gh-green">
             ✅ Safety stop: ${cfg.safetyStopTime} min at ${cfg.safetyStopDepth}m included
         </div>`;
     } else if (res.didSafetyStop && s.inDeco) {
         const cfg = getConfig();
-        safetyBanner.innerHTML = `<div class="safety-banner">
+        safetyBanner.innerHTML = `<div class="bg-gh-green/10 border border-gh-green rounded-md px-4 py-2.5 mb-4 text-[0.9em] text-gh-green">
             🛑 Safety stop: ${cfg.safetyStopTime} min at ${cfg.safetyStopDepth}m included (in addition to deco stops)
         </div>`;
     } else {
@@ -1445,23 +1160,22 @@ function displayResults(res) {
     const reservePct = Math.round(s.reserveFraction * 100);
     const reserveRule = s.maxDepth > 30 ? 'Rule of thirds (depth > 30m)' : 'Rule of quarters (depth ≤ 30m)';
     if (s.ooa) {
-        // Out-of-air is the most critical state — show it prominently
-        gasBanner.innerHTML = `<div class="gas-banner critical">
-            <div class="icon">💀</div>
-            <div class="text">
-                <strong>OUT OF AIR</strong> — diver runs out of gas at ${fmtTime(res.ooaTime)} (${res.ooaDepth != null ? res.ooaDepth.toFixed(1) + 'm' : '?'})<br>
-                <span class="detail">${reserveRule}. Reserve: ${Math.round(s.reserveBar)} bar.
+        gasBanner.innerHTML = `<div class="bg-gh-red/15 border border-gh-red rounded-md px-4 py-3 mb-4 flex items-center gap-2.5">
+            <div class="text-2xl">💀</div>
+            <div class="flex-1">
+                <strong class="text-gh-red">OUT OF AIR</strong> — diver runs out of gas at ${fmtTime(res.ooaTime)} (${res.ooaDepth != null ? res.ooaDepth.toFixed(1) + 'm' : '?'})<br>
+                <span class="text-[0.85em] text-gh-muted">${reserveRule}. Reserve: ${Math.round(s.reserveBar)} bar.
                 ${res.gasExceededTime !== null ? 'Reserve breached at ' + fmtTime(res.gasExceededTime) + '.' : ''}
                 Reduce bottom time, use a larger tank, or decrease RMV.</span>
             </div>
         </div>`;
     } else if (s.gasExceeded) {
         const deficit = Math.round(s.reserveBar - s.tankEnd);
-        gasBanner.innerHTML = `<div class="gas-banner">
-            <div class="icon">⛽</div>
-            <div class="text">
-                <strong>GAS EXCEEDS RESERVE</strong> — ${reserveRule}<br>
-                <span class="detail">Reserve: ${Math.round(s.reserveBar)} bar (1/${Math.round(1/s.reserveFraction)} of ${s.tankStart} bar).
+        gasBanner.innerHTML = `<div class="bg-gh-yellow/15 border border-gh-orange rounded-md px-4 py-3 mb-4 flex items-center gap-2.5">
+            <div class="text-2xl">⛽</div>
+            <div class="flex-1">
+                <strong class="text-gh-orange">GAS EXCEEDS RESERVE</strong> — ${reserveRule}<br>
+                <span class="text-[0.85em] text-gh-muted">Reserve: ${Math.round(s.reserveBar)} bar (1/${Math.round(1/s.reserveFraction)} of ${s.tankStart} bar).
                 Tank end: ${Math.max(0, Math.round(s.tankEnd))} bar — ${deficit} bar into reserve.
                 ${res.gasExceededTime !== null ? 'Reserve breached at ' + fmtTime(res.gasExceededTime) + ' into the dive.' : ''}</span>
             </div>
@@ -1477,7 +1191,7 @@ function displayResults(res) {
         { label: 'Total Time', value: fmtTime(s.totalTime), unit: '' },
         { label: 'Tank End', value: Math.max(0, s.tankEnd).toFixed(0), unit: 'bar',
           cls: s.ooa ? 'danger' : s.gasExceeded ? 'danger' : s.tankEnd < s.reserveBar + 10 ? 'warning' : '' },
-        { label: s.ooa ? '💀 OOA at' : 'Reserve', 
+        { label: s.ooa ? '💀 OOA at' : 'Reserve',
           value: s.ooa ? fmtTime(res.ooaTime) : Math.round(s.reserveBar),
           unit: s.ooa ? `(${res.ooaDepth != null ? res.ooaDepth.toFixed(0) + 'm' : ''})` : `bar (1/${Math.round(1/s.reserveFraction)})`,
           cls: s.ooa ? 'danger' : s.gasExceeded ? 'danger' : '' },
@@ -1492,12 +1206,13 @@ function displayResults(res) {
           unit: s.inDeco ? 'min' : 'L (sfc)',
           cls: s.inDeco ? 'danger' : '' }
     ];
-    grid.innerHTML = cards.map(c =>
-        `<div class="summary-card ${c.cls || ''}">
-            <div class="label">${c.label}</div>
-            <div class="value">${c.value} <span class="unit">${c.unit}</span></div>
-        </div>`
-    ).join('');
+    grid.innerHTML = cards.map(c => {
+        const valueColor = c.cls === 'danger' ? 'text-gh-red' : c.cls === 'warning' ? 'text-gh-yellow' : 'text-gh-green';
+        return `<div class="bg-gh-dark border border-gh-border rounded p-2.5 border-l-[3px] border-l-gh-accent">
+            <div class="text-[0.75em] text-gh-muted">${c.label}</div>
+            <div class="text-[1.4em] font-semibold ${valueColor}">${c.value} <span class="text-[0.7em] text-gh-muted">${c.unit}</span></div>
+        </div>`;
+    }).join('');
 
     // Depth chart
     drawDepthChart(document.getElementById('depthChart'), res.timeline, res.ndlExceededTime, res.gasExceededTime, res.summary.reserveBar, res.segments, res.ooaTime, res.ooaDepth);
@@ -1508,11 +1223,11 @@ function displayResults(res) {
     // Timeline table — include phase coloring for deco/safety
     const tl = res.timeline;
     const phaseColor = p => {
-        if (p.phase === 'deco') return 'var(--red)';
-        if (p.phase === 'safety') return 'var(--yellow)';
-        if (p.phase === 'descent') return 'var(--accent)';
-        if (p.phase === 'ascent') return 'var(--green)';
-        return 'var(--text-dim)';
+        if (p.phase === 'deco') return '#f85149';
+        if (p.phase === 'safety') return '#d29922';
+        if (p.phase === 'descent') return '#58a6ff';
+        if (p.phase === 'ascent') return '#3fb950';
+        return '#8b949e';
     };
     document.getElementById('tblTimeline').innerHTML = tl
         .filter((_, i) => i === 0 || i === tl.length - 1 || i % Math.max(1, Math.floor(tl.length / 60)) === 0)
@@ -1525,10 +1240,10 @@ function displayResults(res) {
             <td>${fmtTime(p.time)}</td>
             <td>${p.depth.toFixed(1)}</td>
             <td style="color:${phaseColor(p)}">${p.phase}</td>
-            <td style="color:${p.tankPressure<s.reserveBar?'var(--orange)':''};${p.tankPressure<=0?'color:var(--red);font-weight:bold':''}">${Math.max(0,p.tankPressure).toFixed(0)}</td>
-            <td style="color:${p.ndl<=0?'var(--red)':p.ndl<=5?'var(--orange)':p.ndl<=10?'var(--yellow)':'var(--green)'}">
+            <td style="color:${p.tankPressure<s.reserveBar?'#db6d28':''};${p.tankPressure<=0?'color:#f85149;font-weight:bold':''}">${Math.max(0,p.tankPressure).toFixed(0)}</td>
+            <td style="color:${p.ndl<=0?'#f85149':p.ndl<=5?'#db6d28':p.ndl<=10?'#d29922':'#3fb950'}">
                 ${p.ndl >= 999 ? '∞' : p.ndl}</td>
-            <td style="color:${p.ceiling>0?'var(--red)':'var(--text-dim)'}">${p.ceiling.toFixed(1)}</td>
+            <td style="color:${p.ceiling>0?'#f85149':'#8b949e'}">${p.ceiling.toFixed(1)}</td>
             <td>#${p.leadIdx} (${p.leadLoad.toFixed(0)}%)</td>
         </tr>`}).join('');
 
@@ -1544,7 +1259,7 @@ function displayResults(res) {
             <td>${p.depth.toFixed(1)}</td>
             <td>${p.pAmb.toFixed(2)}</td>
             <td>${p.gasRate.toFixed(2)}</td>
-            <td style="color:${p.tankPressure<s.reserveBar?'var(--orange)':''};${p.tankPressure<=0?'color:var(--red);font-weight:bold':''}">${Math.max(0,p.tankPressure).toFixed(0)}</td>
+            <td style="color:${p.tankPressure<s.reserveBar?'#db6d28':''};${p.tankPressure<=0?'color:#f85149;font-weight:bold':''}">${Math.max(0,p.tankPressure).toFixed(0)}</td>
             <td>${p.gasUsed.toFixed(0)}</td>
         </tr>`}).join('');
 
@@ -1553,8 +1268,8 @@ function displayResults(res) {
         <td>${t.num}</td>
         <td>${t.halfTime} min</td>
         <td>${t.pN2.toFixed(4)}</td>
-        <td style="color:${t.ceiling>0?'var(--red)':'var(--text-dim)'}">${t.ceiling.toFixed(1)}</td>
-        <td style="color:${t.loading>100?'var(--red)':t.loading>80?'var(--orange)':t.loading>60?'var(--yellow)':'var(--green)'}">
+        <td style="color:${t.ceiling>0?'#f85149':'#8b949e'}">${t.ceiling.toFixed(1)}</td>
+        <td style="color:${t.loading>100?'#f85149':t.loading>80?'#db6d28':t.loading>60?'#d29922':'#3fb950'}">
             ${t.loading.toFixed(1)}%</td>
     </tr>`).join('');
 }
@@ -1563,10 +1278,14 @@ function displayResults(res) {
 // TABS
 // ============================================================
 function switchTab(ev, tabId) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-    ev.target.classList.add('active');
-    document.getElementById(tabId).classList.add('active');
+    document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('text-gh-accent', 'border-b-gh-accent');
+        b.classList.add('text-gh-muted', 'border-b-transparent');
+    });
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.add('hidden'));
+    ev.target.classList.remove('text-gh-muted', 'border-b-transparent');
+    ev.target.classList.add('text-gh-accent', 'border-b-gh-accent');
+    document.getElementById(tabId).classList.remove('hidden');
 }
 
 // ============================================================
@@ -1619,20 +1338,20 @@ function renderSaved() {
     const saved = JSON.parse(localStorage.getItem('diveplan_saved') || '[]');
     const el = document.getElementById('savedList');
     if (saved.length === 0) {
-        el.innerHTML = '<p style="text-align:center;color:var(--text-dim);font-size:0.85em;padding:8px">No saved dives</p>';
+        el.innerHTML = '<p class="text-center text-gh-muted text-[0.85em] p-2">No saved dives</p>';
         return;
     }
     el.innerHTML = saved.sort((a,b) => b.id - a.id).map(d => {
         const maxD = Math.max(...d.waypoints.map(w => w.depth));
         const dt = new Date(d.date).toLocaleDateString();
-        return `<div class="saved-item">
+        return `<div class="flex items-center justify-between p-2 border border-gh-border rounded mb-1 bg-gh-dark">
             <div>
-                <div class="saved-item-name">${d.name}</div>
-                <div class="saved-item-meta">${dt} · ${maxD}m · GF ${d.config.gfLow}/${d.config.gfHigh}</div>
+                <div class="font-medium text-gh-accent text-[0.85em]">${d.name}</div>
+                <div class="text-gh-muted text-[0.75em]">${dt} · ${maxD}m · GF ${d.config.gfLow}/${d.config.gfHigh}</div>
             </div>
-            <div style="display:flex;gap:4px">
-                <button class="btn-small btn-secondary" onclick="loadDive(${d.id})">Load</button>
-                <button class="btn-small btn-danger" onclick="deleteDive(${d.id})">✕</button>
+            <div class="flex gap-1">
+                <button class="px-2 py-0.5 text-[0.8em] border border-gh-border rounded cursor-pointer bg-transparent text-gh-text hover:bg-gh-border" onclick="loadDive(${d.id})">Load</button>
+                <button class="px-2 py-0.5 text-[0.8em] rounded cursor-pointer bg-transparent text-gh-red border border-gh-red hover:bg-gh-red/15" onclick="deleteDive(${d.id})">✕</button>
             </div>
         </div>`;
     }).join('');
@@ -1652,9 +1371,16 @@ function clearAll() {
 function toast(msg, type) {
     const el = document.getElementById('toast');
     el.textContent = msg;
-    el.className = 'toast ' + type + ' show';
+    el.classList.remove('bg-gh-green/90', 'bg-gh-red/90', 'bg-gh-yellow/90');
+    const colors = { success: 'bg-gh-green/90', error: 'bg-gh-red/90', warn: 'bg-gh-yellow/90' };
+    el.classList.add(colors[type] || 'bg-gh-green/90');
+    el.classList.remove('opacity-0', 'translate-y-2.5');
+    el.classList.add('opacity-100', 'translate-y-0');
     clearTimeout(el._t);
-    el._t = setTimeout(() => el.classList.remove('show'), 3000);
+    el._t = setTimeout(() => {
+        el.classList.remove('opacity-100', 'translate-y-0');
+        el.classList.add('opacity-0', 'translate-y-2.5');
+    }, 3000);
 }
 
 // ============================================================
