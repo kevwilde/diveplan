@@ -1160,13 +1160,17 @@ function displayResults(res) {
     const reservePct = Math.round(s.reserveFraction * 100);
     const reserveRule = s.maxDepth > 30 ? 'Rule of thirds (depth > 30m)' : 'Rule of quarters (depth ≤ 30m)';
     if (s.ooa) {
+        const diveBarL    = Math.round(s.gasUsed);
+        const reserveBarL = Math.round(s.gasUsed * s.reserveFraction / (1 - s.reserveFraction));
+        const totalBarL   = diveBarL + reserveBarL;
         gasBanner.innerHTML = `<div class="bg-gh-red/15 border border-gh-red rounded-md px-4 py-3 mb-4 flex items-center gap-2.5">
             <div class="text-2xl">💀</div>
             <div class="flex-1">
                 <strong class="text-gh-red">OUT OF AIR</strong> — diver runs out of gas at ${fmtTime(res.ooaTime)} (${res.ooaDepth != null ? res.ooaDepth.toFixed(1) + 'm' : '?'})<br>
                 <span class="text-[0.85em] text-gh-muted">${reserveRule}. Reserve: ${Math.round(s.reserveBar)} bar.
                 ${res.gasExceededTime !== null ? 'Reserve breached at ' + fmtTime(res.gasExceededTime) + '.' : ''}
-                Reduce bottom time, use a larger tank, or decrease RMV.</span>
+                Reduce bottom time, use a larger tank, or decrease RMV.</span><br>
+                <span class="text-[0.85em]"><strong class="text-gh-red">Gas required: ${totalBarL} bar·L</strong> <span class="text-gh-muted">(${diveBarL} bar·L dive gas + ${reserveBarL} bar·L reserve [${reservePct}%])</span></span>
             </div>
         </div>`;
     } else if (s.gasExceeded) {
