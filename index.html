@@ -913,15 +913,19 @@ class DiveSimulator {
         const reserveBar = this.tankPress * reserveFraction;
         const usableGas = this.tankPress - reserveBar;
         const gasExceeded = tp < reserveBar;
-        // Find time when gas first drops below reserve
+        // Find time when gas first drops below reserve, and when it hits zero (OOA)
         let gasExceededTime = null;
-        if (gasExceeded) {
-            for (const p of tl) {
-                if (p.tankPressure < reserveBar) {
-                    gasExceededTime = p.time;
-                    break;
-                }
+        let ooaTime = null;
+        let ooaDepth = null;
+        for (const p of tl) {
+            if (gasExceededTime === null && p.tankPressure < reserveBar) {
+                gasExceededTime = p.time;
             }
+            if (ooaTime === null && p.tankPressure <= 0) {
+                ooaTime = p.time;
+                ooaDepth = p.depth;
+            }
+            if (gasExceededTime !== null && ooaTime !== null) break;
         }
 
         return {
@@ -932,6 +936,8 @@ class DiveSimulator {
             didSafetyStop,
             ndlExceededTime,
             gasExceededTime,
+            ooaTime,
+            ooaDepth,
             summary: {
                 maxDepth,
                 totalTime: t,
@@ -947,7 +953,8 @@ class DiveSimulator {
                 reserveFraction,
                 reserveBar,
                 usableGas,
-                gasExceeded
+                gasExceeded,
+                ooa: ooaTime !== null
             }
         };
     }
@@ -956,7 +963,7 @@ class DiveSimulator {
 // ============================================================
 // DEPTH PROFILE CHART (D3.js)
 // ============================================================
-function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, reserveBar, segments) {
+function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, reserveBar, segments, ooaTime, ooaDepth) {
     const el = typeof container === 'string' ? document.getElementById(container) : container;
     if (!el || !timeline || timeline.length === 0) return;
     el.innerHTML = '';
@@ -1074,6 +1081,26 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
             .attr('y', ndlExceededTime !== null ? h + 28 : -6)
             .attr('text-anchor', 'middle').attr('fill', '#d29922')
             .attr('font-size', '10px').attr('font-weight', 'bold').text('⛽ RESERVE');
+    }
+
+    // Out-of-air (OOA) marker — solid red vertical line + skull icon at dive depth
+    if (ooaTime !== null) {
+        const ox = x(ooaTime);
+        const oy = yDepth(ooaDepth || 0);
+        // Strong red vertical line
+        g.append('line').attr('x1', ox).attr('x2', ox).attr('y1', 0).attr('y2', h)
+            .attr('stroke', '#f85149').attr('stroke-width', 2.5);
+        // Red circle marker on depth line
+        g.append('circle').attr('cx', ox).attr('cy', oy).attr('r', 7)
+            .attr('fill', '#f85149').attr('stroke', '#0d1117').attr('stroke-width', 1.5);
+        g.append('text').attr('x', ox).attr('y', oy + 4)
+            .attr('text-anchor', 'middle').attr('fill', '#fff')
+            .attr('font-size', '9px').attr('font-weight', 'bold').text('✕');
+        // Top label — positioned to avoid overlap with NDL/RESERVE labels
+        const labelY = (ndlExceededTime !== null || gasExceededTime !== null) ? h + 14 : -6;
+        g.append('text').attr('x', ox).attr('y', labelY)
+            .attr('text-anchor', 'middle').attr('fill', '#f85149')
+            .attr('font-size', '10px').attr('font-weight', 'bold').text('💀 OOA');
     }
 
     // Safety stop marker
@@ -1417,15 +1444,25 @@ function displayResults(res) {
     const gasBanner = document.getElementById('gasBanner');
     const reservePct = Math.round(s.reserveFraction * 100);
     const reserveRule = s.maxDepth > 30 ? 'Rule of thirds (depth > 30m)' : 'Rule of quarters (depth ≤ 30m)';
-    if (s.gasExceeded) {
+    if (s.ooa) {
+        // Out-of-air is the most critical state — show it prominently
+        gasBanner.innerHTML = `<div class="gas-banner critical">
+            <div class="icon">💀</div>
+            <div class="text">
+                <strong>OUT OF AIR</strong> — diver runs out of gas at ${fmtTime(res.ooaTime)} (${res.ooaDepth != null ? res.ooaDepth.toFixed(1) + 'm' : '?'})<br>
+                <span class="detail">${reserveRule}. Reserve: ${Math.round(s.reserveBar)} bar.
+                ${res.gasExceededTime !== null ? 'Reserve breached at ' + fmtTime(res.gasExceededTime) + '.' : ''}
+                Reduce bottom time, use a larger tank, or decrease RMV.</span>
+            </div>
+        </div>`;
+    } else if (s.gasExceeded) {
         const deficit = Math.round(s.reserveBar - s.tankEnd);
-        const isCritical = s.tankEnd <= 0;
-        gasBanner.innerHTML = `<div class="gas-banner ${isCritical ? 'critical' : ''}">
+        gasBanner.innerHTML = `<div class="gas-banner">
             <div class="icon">⛽</div>
             <div class="text">
-                <strong>${isCritical ? 'OUT OF GAS' : 'GAS EXCEEDS RESERVE'}</strong> — ${reserveRule}<br>
+                <strong>GAS EXCEEDS RESERVE</strong> — ${reserveRule}<br>
                 <span class="detail">Reserve: ${Math.round(s.reserveBar)} bar (1/${Math.round(1/s.reserveFraction)} of ${s.tankStart} bar).
-                Tank end: ${Math.max(0, Math.round(s.tankEnd))} bar — ${isCritical ? 'tank is empty!' : deficit + ' bar into reserve.'}
+                Tank end: ${Math.max(0, Math.round(s.tankEnd))} bar — ${deficit} bar into reserve.
                 ${res.gasExceededTime !== null ? 'Reserve breached at ' + fmtTime(res.gasExceededTime) + ' into the dive.' : ''}</span>
             </div>
         </div>`;
@@ -1439,9 +1476,11 @@ function displayResults(res) {
         { label: 'Max Depth', value: s.maxDepth.toFixed(1), unit: 'm' },
         { label: 'Total Time', value: fmtTime(s.totalTime), unit: '' },
         { label: 'Tank End', value: Math.max(0, s.tankEnd).toFixed(0), unit: 'bar',
-          cls: s.gasExceeded ? 'danger' : s.tankEnd < s.reserveBar + 10 ? 'warning' : '' },
-        { label: 'Reserve', value: Math.round(s.reserveBar), unit: `bar (1/${Math.round(1/s.reserveFraction)})`,
-          cls: s.gasExceeded ? 'danger' : '' },
+          cls: s.ooa ? 'danger' : s.gasExceeded ? 'danger' : s.tankEnd < s.reserveBar + 10 ? 'warning' : '' },
+        { label: s.ooa ? '💀 OOA at' : 'Reserve', 
+          value: s.ooa ? fmtTime(res.ooaTime) : Math.round(s.reserveBar),
+          unit: s.ooa ? `(${res.ooaDepth != null ? res.ooaDepth.toFixed(0) + 'm' : ''})` : `bar (1/${Math.round(1/s.reserveFraction)})`,
+          cls: s.ooa ? 'danger' : s.gasExceeded ? 'danger' : '' },
         { label: 'Min NDL', value: s.minNDL >= 999 ? '∞' : s.minNDL + '', unit: 'min',
           cls: s.minNDL <= 0 ? 'danger' : s.minNDL <= 5 ? 'warning' : '' },
         { label: 'Max Ceiling', value: s.maxCeiling.toFixed(1), unit: 'm',
@@ -1461,7 +1500,7 @@ function displayResults(res) {
     ).join('');
 
     // Depth chart
-    drawDepthChart(document.getElementById('depthChart'), res.timeline, res.ndlExceededTime, res.gasExceededTime, res.summary.reserveBar, res.segments);
+    drawDepthChart(document.getElementById('depthChart'), res.timeline, res.ndlExceededTime, res.gasExceededTime, res.summary.reserveBar, res.segments, res.ooaTime, res.ooaDepth);
 
     // Tissue bars
     drawTissueBars('tissueBars', res.tissues);
@@ -1635,7 +1674,7 @@ document.getElementById('safetyStopEnabled').addEventListener('change', () => {
 
 // Handle window resize for chart
 window.addEventListener('resize', () => {
-    if (lastResult) drawDepthChart(document.getElementById('depthChart'), lastResult.timeline, lastResult.ndlExceededTime, lastResult.gasExceededTime, lastResult.summary.reserveBar, lastResult.segments);
+    if (lastResult) drawDepthChart(document.getElementById('depthChart'), lastResult.timeline, lastResult.ndlExceededTime, lastResult.gasExceededTime, lastResult.summary.reserveBar, lastResult.segments, lastResult.ooaTime, lastResult.ooaDepth);
 });
 </script>
 </body>
