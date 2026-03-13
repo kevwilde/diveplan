@@ -1,0 +1,1637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dive Planner — Bühlmann ZHL-16C GF</title>
+    <style>
+        :root {
+            --bg-dark: #0d1117;
+            --bg-panel: #161b22;
+            --bg-input: #0d1117;
+            --border: #30363d;
+            --accent: #58a6ff;
+            --accent-dim: #1f6feb;
+            --text: #c9d1d9;
+            --text-dim: #8b949e;
+            --green: #3fb950;
+            --yellow: #d29922;
+            --orange: #db6d28;
+            --red: #f85149;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .container { max-width: 1500px; margin: 0 auto; padding: 16px; }
+        header { text-align: center; padding: 16px 0 24px; }
+        header h1 { color: var(--accent); font-size: 1.6em; font-weight: 600; }
+        header p { color: var(--text-dim); font-size: 0.9em; }
+
+        .layout { display: grid; grid-template-columns: 380px 1fr; gap: 20px; }
+        @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+        }
+        .panel h2 {
+            color: var(--accent);
+            font-size: 1.1em;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .panel h3 {
+            color: var(--text);
+            font-size: 0.95em;
+            margin: 14px 0 8px;
+        }
+
+        .form-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        .form-row .form-group { flex: 1; }
+        .form-group { margin-bottom: 10px; }
+        .form-group label {
+            display: block;
+            font-size: 0.8em;
+            color: var(--text-dim);
+            margin-bottom: 3px;
+        }
+        input[type="number"], input[type="text"], select {
+            width: 100%;
+            padding: 6px 8px;
+            background: var(--bg-input);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(88,166,255,0.15);
+        }
+
+        button {
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+        .btn-primary {
+            background: var(--accent-dim);
+            color: #fff;
+            border-color: var(--accent-dim);
+        }
+        .btn-primary:hover { background: var(--accent); }
+        .btn-secondary {
+            background: transparent;
+            color: var(--text);
+        }
+        .btn-secondary:hover { background: var(--border); }
+        .btn-danger {
+            background: transparent;
+            color: var(--red);
+            border-color: var(--red);
+        }
+        .btn-danger:hover { background: rgba(248,81,73,0.15); }
+        .btn-small { padding: 3px 8px; font-size: 0.8em; }
+
+        .btn-row { display: flex; gap: 8px; margin-top: 12px; }
+        .btn-row button { flex: 1; }
+
+        .waypoint-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg-input);
+        }
+        .waypoint-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 5px 8px;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85em;
+        }
+        .waypoint-item:last-child { border-bottom: none; }
+        .wp-empty { text-align: center; padding: 16px; color: var(--text-dim); }
+
+        .segment-preview {
+            font-size: 0.8em;
+            color: var(--text-dim);
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 8px;
+            margin-top: 8px;
+            max-height: 160px;
+            overflow-y: auto;
+        }
+        .segment-preview .seg {
+            padding: 2px 0;
+            display: flex;
+            gap: 6px;
+        }
+        .seg-label { color: var(--accent); min-width: 60px; }
+        .seg-time { color: var(--text-dim); min-width: 80px; text-align: right; }
+
+        .saved-list { margin-top: 8px; }
+        .saved-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            margin-bottom: 4px;
+            background: var(--bg-input);
+        }
+        .saved-item-name { font-weight: 500; color: var(--accent); font-size: 0.85em; }
+        .saved-item-meta { color: var(--text-dim); font-size: 0.75em; }
+
+        /* Results */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .summary-card {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 10px;
+            border-left: 3px solid var(--accent);
+        }
+        .summary-card .label { font-size: 0.75em; color: var(--text-dim); }
+        .summary-card .value { font-size: 1.4em; font-weight: 600; color: var(--green); }
+        .summary-card .unit { font-size: 0.7em; color: var(--text-dim); }
+        .summary-card.warning .value { color: var(--yellow); }
+        .summary-card.danger .value { color: var(--red); }
+
+        .chart-wrap {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+        .chart-wrap h3 { font-size: 0.9em; color: var(--text-dim); margin-bottom: 8px; }
+        canvas { width: 100%; display: block; }
+
+        .tissue-bars { margin-bottom: 16px; }
+        .tissue-bar-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 3px;
+            font-size: 0.75em;
+        }
+        .tissue-bar-label {
+            width: 28px;
+            text-align: right;
+            padding-right: 6px;
+            color: var(--text-dim);
+        }
+        .tissue-bar-track {
+            flex: 1;
+            height: 14px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+            position: relative;
+        }
+        .tissue-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
+        .tissue-bar-pct {
+            width: 42px;
+            text-align: right;
+            padding-left: 6px;
+            font-size: 0.85em;
+        }
+        .tissue-bar-ht {
+            width: 48px;
+            text-align: right;
+            color: var(--text-dim);
+            padding-left: 4px;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 10px;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            padding: 8px 14px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            font-size: 0.85em;
+        }
+        .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .tab-btn:hover { color: var(--text); }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
+        th { background: var(--bg-input); color: var(--accent); font-weight: 600; text-align: left; padding: 6px 8px; position: sticky; top: 0; }
+        td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
+        .table-scroll { max-height: 400px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 18px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            font-weight: 500;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.success { background: rgba(63,185,80,0.9); color: #fff; }
+        .toast.error { background: rgba(248,81,73,0.9); color: #fff; }
+        .toast.warn { background: rgba(210,153,34,0.9); color: #fff; }
+        #placeholder { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+        #placeholder .icon { font-size: 3em; margin-bottom: 12px; }
+        #resultsArea { display: none; }
+        .deco-banner {
+            background: rgba(248,81,73,0.15);
+            border: 1px solid var(--red);
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .deco-banner .icon { font-size: 1.5em; }
+        .deco-banner .text { flex: 1; }
+        .deco-banner .text strong { color: var(--red); }
+        .deco-banner .detail { font-size: 0.85em; color: var(--text-dim); }
+        .deco-stops-table { margin-top: 8px; }
+        .deco-stops-table td { padding: 2px 12px 2px 0; font-size: 0.85em; }
+        .safety-banner {
+            background: rgba(63,185,80,0.1);
+            border: 1px solid var(--green);
+            border-radius: 6px;
+            padding: 10px 16px;
+            margin-bottom: 16px;
+            font-size: 0.9em;
+            color: var(--green);
+        }
+        .gas-banner {
+            background: rgba(210,153,34,0.15);
+            border: 1px solid var(--orange);
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .gas-banner .icon { font-size: 1.5em; }
+        .gas-banner .text { flex: 1; }
+        .gas-banner .text strong { color: var(--orange); }
+        .gas-banner .detail { font-size: 0.85em; color: var(--text-dim); }
+        .gas-banner.critical {
+            background: rgba(248,81,73,0.15);
+            border-color: var(--red);
+        }
+        .gas-banner.critical .text strong { color: var(--red); }
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        .checkbox-row input[type="checkbox"] {
+            width: auto;
+            accent-color: var(--accent);
+        }
+        .checkbox-row label { margin: 0; font-size: 0.9em; color: var(--text); }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>🤿 Dive Planner — Bühlmann ZHL-16C GF</h1>
+        <p>Plan your dive. Dive your plan.</p>
+    </header>
+    <div class="layout">
+        <!-- === INPUT PANEL === -->
+        <div>
+            <div class="panel">
+                <h2>⚙️ Dive Settings</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Tank Volume (L)</label>
+                        <input type="number" id="tankVolume" value="12" min="1" max="50" step="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label>Start Pressure (bar)</label>
+                        <input type="number" id="tankPressure" value="200" min="50" max="300" step="5">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>RMV — Respiratory Minute Volume (L/min at surface)</label>
+                    <input type="number" id="rmv" value="20" min="5" max="40" step="1">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>GF Low (%)</label>
+                        <input type="number" id="gfLow" value="40" min="5" max="100" step="5">
+                    </div>
+                    <div class="form-group">
+                        <label>GF High (%)</label>
+                        <input type="number" id="gfHigh" value="85" min="5" max="100" step="5">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Descent Rate (m/min)</label>
+                        <input type="number" id="descentRate" value="20" min="1" max="40" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Ascent Rate (m/min)</label>
+                        <input type="number" id="ascentRate" value="10" min="1" max="20" step="1">
+                    </div>
+                </div>
+                <h3>🛑 Safety Stop</h3>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="safetyStopEnabled" checked>
+                    <label for="safetyStopEnabled">Enable safety stop</label>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Depth (m)</label>
+                        <input type="number" id="safetyStopDepth" value="5" min="3" max="10" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Duration (min)</label>
+                        <input type="number" id="safetyStopTime" value="5" min="1" max="10" step="1">
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" style="margin-top:12px">
+                <h2>📍 Waypoints</h2>
+                <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:10px">
+                    Each waypoint: target depth + time at that depth. Transitions are computed automatically.
+                </p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Depth (m)</label>
+                        <input type="number" id="wpDepth" value="30" min="0" max="120" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Bottom Time (min)</label>
+                        <input type="number" id="wpTime" value="20" min="0" max="600" step="1">
+                    </div>
+                </div>
+                <button class="btn-primary" onclick="addWaypoint()" style="width:100%">+ Add Waypoint</button>
+
+                <div class="waypoint-list" id="wpList" style="margin-top:10px">
+                    <div class="wp-empty">No waypoints defined</div>
+                </div>
+
+                <div id="segmentPreview"></div>
+
+                <div class="btn-row">
+                    <button class="btn-primary" onclick="calculateDive()">🔄 Calculate</button>
+                    <button class="btn-secondary" onclick="clearAll()">Clear</button>
+                </div>
+            </div>
+
+            <div class="panel" style="margin-top:12px">
+                <h2>💾 Saved Dives</h2>
+                <div class="form-group">
+                    <label>Dive Name</label>
+                    <input type="text" id="diveName" placeholder="My dive plan">
+                </div>
+                <button class="btn-secondary" onclick="saveDive()" style="width:100%">Save Current Dive</button>
+                <div class="saved-list" id="savedList"></div>
+            </div>
+        </div>
+
+        <!-- === RESULTS PANEL === -->
+        <div>
+            <div id="placeholder" class="panel">
+                <div class="icon">🌊</div>
+                <p>Add waypoints and click <strong>Calculate</strong> to see your dive plan.</p>
+            </div>
+            <div id="resultsArea">
+                <div id="decoBanner"></div>
+                <div id="safetyBanner"></div>
+                <div id="gasBanner"></div>
+                <div class="panel">
+                    <h2>📊 Dive Summary</h2>
+                    <div class="summary-grid" id="summaryGrid"></div>
+                </div>
+                <div class="panel" style="margin-top:12px">
+                    <div class="chart-wrap">
+                        <h3>Depth Profile</h3>
+                        <canvas id="depthChart" height="220"></canvas>
+                    </div>
+                    <div class="chart-wrap">
+                        <h3>Tissue Loading (end of dive)</h3>
+                        <div class="tissue-bars" id="tissueBars"></div>
+                    </div>
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="switchTab(event,'tabTimeline')">Timeline</button>
+                        <button class="tab-btn" onclick="switchTab(event,'tabGas')">Gas Profile</button>
+                        <button class="tab-btn" onclick="switchTab(event,'tabTissues')">Tissue Details</button>
+                    </div>
+                    <div id="tabTimeline" class="tab-pane active">
+                        <div class="table-scroll"><table><thead><tr>
+                            <th>Time</th><th>Depth (m)</th><th>Phase</th>
+                            <th>Tank (bar)</th><th>NDL (min)</th><th>Ceiling (m)</th>
+                            <th>Lead Tissue</th>
+                        </tr></thead><tbody id="tblTimeline"></tbody></table></div>
+                    </div>
+                    <div id="tabGas" class="tab-pane">
+                        <div class="table-scroll"><table><thead><tr>
+                            <th>Time</th><th>Depth (m)</th><th>Amb. Press (bar)</th>
+                            <th>Gas Rate (bar/min)</th><th>Tank (bar)</th><th>Used (L sfc eq)</th>
+                        </tr></thead><tbody id="tblGas"></tbody></table></div>
+                    </div>
+                    <div id="tabTissues" class="tab-pane">
+                        <div class="table-scroll"><table><thead><tr>
+                            <th>#</th><th>Half-time</th><th>pN₂ (bar)</th>
+                            <th>Ceiling (m)</th><th>Load %</th>
+                        </tr></thead><tbody id="tblTissues"></tbody></table></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+const P_SFC     = 1.013;    // surface pressure (bar)
+const P_H2O     = 0.0627;   // water vapor pressure at 37°C (bar)
+const F_N2      = 0.79;     // fraction of N2 in air (simplified; 0.7902 in dry air, but with H2O correction this is conventional)
+const M_PER_BAR = 10.0;     // meters of seawater per bar
+
+// Initial tissue N2 pressure (surface equilibrium with water vapor correction)
+const P_N2_SFC  = (P_SFC - P_H2O) * F_N2;   // ~0.7508 bar
+
+// ============================================================
+// BÜHLMANN ZHL-16C N2 COMPARTMENT TABLE
+// Half-times in minutes, a in bar, b dimensionless
+// ============================================================
+const ZHL16C = [
+    { ht:   4.0,  a: 1.2599, b: 0.5050 },
+    { ht:   8.0,  a: 1.0000, b: 0.6514 },
+    { ht:  12.5,  a: 0.8618, b: 0.7222 },
+    { ht:  18.5,  a: 0.7562, b: 0.7825 },
+    { ht:  27.0,  a: 0.6200, b: 0.8126 },
+    { ht:  38.3,  a: 0.5043, b: 0.8434 },
+    { ht:  54.3,  a: 0.4410, b: 0.8693 },
+    { ht:  77.0,  a: 0.4000, b: 0.8910 },
+    { ht: 109.0,  a: 0.3750, b: 0.9092 },
+    { ht: 146.0,  a: 0.3500, b: 0.9222 },
+    { ht: 187.0,  a: 0.3295, b: 0.9319 },
+    { ht: 239.0,  a: 0.3065, b: 0.9403 },
+    { ht: 305.0,  a: 0.2835, b: 0.9477 },
+    { ht: 390.0,  a: 0.2610, b: 0.9544 },
+    { ht: 498.0,  a: 0.2480, b: 0.9602 },
+    { ht: 635.0,  a: 0.2327, b: 0.9653 }
+];
+
+// ============================================================
+// SCHREINER EQUATION
+// Exact solution for tissue gas loading during linear
+// pressure change (constant depth or constant-rate transition).
+//
+//   P_t(t) = P_i0 + R*(t - 1/k)
+//            - (P_i0 - P_t0 - R/k) * exp(-k*t)
+//
+// P_i0: initial inspired inert gas pressure (bar)
+// R:    rate of change of inspired pressure (bar/min)
+//       (positive for descent, negative for ascent, 0 for constant depth)
+// k:    tissue rate constant = ln(2) / half_time  (per min)
+// P_t0: initial tissue pressure (bar)
+// t:    time interval (min)
+// ============================================================
+function schreiner(piInit, R, t, k, ptInit) {
+    return piInit + R * (t - 1/k) - (piInit - ptInit - R/k) * Math.exp(-k * t);
+}
+
+// ============================================================
+// DECOMPRESSION MODEL CLASS
+// ============================================================
+class DecoModel {
+    constructor(gfLow, gfHigh) {
+        this.gfLow  = gfLow  / 100;
+        this.gfHigh = gfHigh / 100;
+        // Tissue N2 pressures (bar), initialized to surface equilibrium
+        this.pN2 = new Float64Array(16).fill(P_N2_SFC);
+    }
+
+    // Ambient pressure at depth (bar)
+    pAmb(depth) { return P_SFC + depth / M_PER_BAR; }
+
+    // Inspired N2 pressure at depth (bar) — accounts for water vapor
+    piN2(depth) { return (this.pAmb(depth) - P_H2O) * F_N2; }
+
+    // Load tissues at constant depth for t minutes
+    loadConstant(depth, t) {
+        const pi = this.piN2(depth);
+        for (let i = 0; i < 16; i++) {
+            const k = Math.LN2 / ZHL16C[i].ht;
+            this.pN2[i] = schreiner(pi, 0, t, k, this.pN2[i]);
+        }
+    }
+
+    // Load tissues during linear depth change
+    // depthRate: m/min (positive=descent, negative=ascent)
+    // startDepth: depth at start of segment (m)
+    // t: duration (min)
+    loadLinear(startDepth, depthRate, t) {
+        const piStart = this.piN2(startDepth);
+        const R = (depthRate / M_PER_BAR) * F_N2;   // bar/min change in inspired N2
+        for (let i = 0; i < 16; i++) {
+            const k = Math.LN2 / ZHL16C[i].ht;
+            this.pN2[i] = schreiner(piStart, R, t, k, this.pN2[i]);
+        }
+    }
+
+    // Ceiling pressure for tissue i at gradient factor gf
+    // Returns the minimum tolerable ambient pressure (bar)
+    tissueCeiling(i, gf) {
+        const {a, b} = ZHL16C[i];
+        return (this.pN2[i] - a * gf) / (gf / b - gf + 1);
+    }
+
+    // Overall ceiling depth (m) using given gradient factor
+    // Returns 0 if no deco required
+    ceilingDepth(gf) {
+        let maxP = 0;
+        for (let i = 0; i < 16; i++) {
+            const pCeil = this.tissueCeiling(i, gf);
+            if (pCeil > maxP) maxP = pCeil;
+        }
+        const depth = (maxP - P_SFC) * M_PER_BAR;
+        return Math.max(0, depth);
+    }
+
+    // NDL at current depth (minutes remaining before deco obligation)
+    // Uses GF-High for the surface ceiling check
+    // Returns analytical solution per-tissue, takes minimum
+    ndl(depth) {
+        const pi = this.piN2(depth);
+        let minNDL = Infinity;
+
+        for (let i = 0; i < 16; i++) {
+            const {a, b, ht} = ZHL16C[i];
+            const k = Math.LN2 / ht;
+            const gf = this.gfHigh;
+
+            // Maximum tissue N2 for direct ascent to surface:
+            // P_tissue_limit = P_sfc * (1 - gf + gf/b) + gf * a
+            const pLimit = P_SFC * (1 - gf + gf / b) + gf * a;
+
+            // Already past limit?
+            if (this.pN2[i] >= pLimit) return 0;
+
+            // On-gassing check: will tissue reach limit?
+            if (pi <= pLimit) continue;  // offgassing or won't reach limit
+
+            // Solve: pLimit = pi + (pN2_0 - pi) * exp(-k*t)
+            const ratio = (pLimit - pi) / (this.pN2[i] - pi);
+            if (ratio <= 0 || ratio >= 1) continue;
+
+            const tNDL = -Math.log(ratio) / k;
+            if (tNDL < minNDL) minNDL = tNDL;
+        }
+
+        return minNDL === Infinity ? 999 : Math.floor(minNDL);
+    }
+
+    // Leading (most loaded) tissue index and its loading percentage
+    // Loading: 0% = surface equilibrium, 100% = at GF-High M-value at surface
+    leadingTissue() {
+        let maxLoad = -Infinity, maxIdx = 0;
+        for (let i = 0; i < 16; i++) {
+            const {a, b} = ZHL16C[i];
+            const mGF = P_SFC + this.gfHigh * (a + P_SFC / b - P_SFC);
+            const load = (this.pN2[i] - P_N2_SFC) / (mGF - P_N2_SFC) * 100;
+            if (load > maxLoad) { maxLoad = load; maxIdx = i; }
+        }
+        return { index: maxIdx, loading: maxLoad };
+    }
+
+    // Get all tissue data for display
+    tissueData() {
+        return ZHL16C.map((c, i) => {
+            const {a, b} = c;
+            const mGF = P_SFC + this.gfHigh * (a + P_SFC / b - P_SFC);
+            const load = (this.pN2[i] - P_N2_SFC) / (mGF - P_N2_SFC) * 100;
+            const ceilDepth = Math.max(0, (this.tissueCeiling(i, this.gfHigh) - P_SFC) * M_PER_BAR);
+            return {
+                num: i + 1,
+                halfTime: c.ht,
+                pN2: this.pN2[i],
+                ceiling: ceilDepth,
+                loading: load
+            };
+        });
+    }
+
+    // Deep copy
+    clone() {
+        const c = new DecoModel(this.gfLow * 100, this.gfHigh * 100);
+        c.pN2 = new Float64Array(this.pN2);
+        return c;
+    }
+
+    reset() { this.pN2.fill(P_N2_SFC); }
+}
+
+// ============================================================
+// DIVE SIMULATOR
+// Processes waypoints with automatic transitions between depths.
+// Each waypoint = { depth (m), time (min at that depth) }
+// Outputs minute-by-minute timeline.
+// ============================================================
+class DiveSimulator {
+    constructor(cfg) {
+        this.descentRate = cfg.descentRate;
+        this.ascentRate  = cfg.ascentRate;
+        this.tankVol     = cfg.tankVolume;
+        this.tankPress   = cfg.tankPressure;
+        this.rmv         = cfg.rmv;
+        this.model       = new DecoModel(cfg.gfLow, cfg.gfHigh);
+        this.safetyStopEnabled = cfg.safetyStopEnabled;
+        this.safetyStopDepth   = cfg.safetyStopDepth || 5;
+        this.safetyStopTime    = cfg.safetyStopTime || 5;
+    }
+
+    simulate(waypoints) {
+        const tl = [];           // timeline data points
+        const segments = [];     // segment descriptions
+        let t  = 0;              // current time (min)
+        let d  = 0;              // current depth (m)
+        let tp = this.tankPress; // current tank pressure (bar)
+        let gasUsed = 0;         // cumulative gas used (surface-equiv L)
+        let ndlExceededTime = null; // time when NDL first hit 0
+        let inDeco = false;
+
+        const record = (phase) => {
+            const pamb = this.model.pAmb(d);
+            const gasRate = this.rmv * pamb / this.tankVol;
+            const ndl = this.model.ndl(d);
+            const ceil = this.model.ceilingDepth(this.model.gfHigh);
+            const lead = this.model.leadingTissue();
+            if (ndl <= 0 && ndlExceededTime === null && d > 0.5) {
+                ndlExceededTime = t;
+                inDeco = true;
+            }
+            tl.push({
+                time: t, depth: d, phase,
+                tankPressure: tp, gasUsed,
+                pAmb: pamb, gasRate,
+                ndl, ceiling: ceil,
+                leadIdx: lead.index + 1,
+                leadLoad: lead.loading,
+                inDeco: ceil > 0.1
+            });
+        };
+
+        // Process a segment: linear depth change or constant depth
+        const processSegment = (startD, endD, duration, phase) => {
+            if (duration <= 0) return;
+            const depthRate = (endD - startD) / duration;
+            const steps = Math.max(1, Math.ceil(duration));
+            const dt = duration / steps;
+
+            for (let s = 0; s < steps; s++) {
+                const segStartD = startD + depthRate * s * dt;
+                const segEndD   = startD + depthRate * (s + 1) * dt;
+
+                if (Math.abs(depthRate) < 0.001) {
+                    this.model.loadConstant(segStartD, dt);
+                } else {
+                    this.model.loadLinear(segStartD, depthRate, dt);
+                }
+
+                const avgD = (segStartD + segEndD) / 2;
+                const avgPamb = this.model.pAmb(avgD);
+                const gasStep = this.rmv * avgPamb * dt;
+                tp -= gasStep / this.tankVol;
+                gasUsed += gasStep;
+
+                d = segEndD;
+                t += dt;
+                record(phase);
+            }
+        };
+
+        // Initial data point at surface
+        record('surface');
+
+        // Build full profile: for each waypoint, transition then bottom time
+        let prevDepth = 0;
+        for (let i = 0; i < waypoints.length; i++) {
+            const wp = waypoints[i];
+            const depthDiff = wp.depth - prevDepth;
+            const rate = depthDiff >= 0 ? this.descentRate : this.ascentRate;
+            const transTime = Math.abs(depthDiff) / rate;
+
+            if (transTime > 0.001) {
+                const phase = depthDiff > 0 ? 'descent' : 'ascent';
+                segments.push({
+                    phase, from: prevDepth, to: wp.depth,
+                    rate, duration: transTime
+                });
+                processSegment(prevDepth, wp.depth, transTime, phase);
+            }
+
+            if (wp.time > 0) {
+                segments.push({
+                    phase: 'bottom', from: wp.depth, to: wp.depth,
+                    rate: 0, duration: wp.time
+                });
+                processSegment(wp.depth, wp.depth, wp.time, 'bottom');
+            }
+
+            prevDepth = wp.depth;
+        }
+
+        // === DECO STOPS (if needed) ===
+        // Check if diver can surface directly using GF_high (normal NDL check)
+        const decoStops = [];
+        const ceilWithGfHigh = this.model.ceilingDepth(this.model.gfHigh);
+
+        if (ceilWithGfHigh > 0.1 && prevDepth > 0.1) {
+            // Deco is required: use GF_low for first stop depth
+            const ceilWithGfLow = this.model.ceilingDepth(this.model.gfLow);
+            const firstStopDepth = Math.max(3, Math.ceil(ceilWithGfLow / 3) * 3);
+
+            // Ascend from current depth to first stop
+            if (prevDepth > firstStopDepth + 0.1) {
+                const transTime = (prevDepth - firstStopDepth) / this.ascentRate;
+                segments.push({
+                    phase: 'ascent', from: prevDepth, to: firstStopDepth,
+                    rate: this.ascentRate, duration: transTime
+                });
+                processSegment(prevDepth, firstStopDepth, transTime, 'ascent');
+                prevDepth = firstStopDepth;
+            }
+
+            // Process each deco stop from deepest to shallowest
+            for (let stopDepth = firstStopDepth; stopDepth >= 3; stopDepth -= 3) {
+                // Ascend to this stop if not already there
+                if (prevDepth > stopDepth + 0.1) {
+                    const transTime = (prevDepth - stopDepth) / this.ascentRate;
+                    segments.push({
+                        phase: 'ascent', from: prevDepth, to: stopDepth,
+                        rate: this.ascentRate, duration: transTime
+                    });
+                    processSegment(prevDepth, stopDepth, transTime, 'ascent');
+                    prevDepth = stopDepth;
+                }
+
+                // GF interpolation: GF_low at first_stop, GF_high at surface
+                const nextStopDepth = stopDepth - 3;
+                const gfAtNext = nextStopDepth <= 0
+                    ? this.model.gfHigh
+                    : this.model.gfLow + (this.model.gfHigh - this.model.gfLow) * (firstStopDepth - nextStopDepth) / firstStopDepth;
+
+                // Wait at this stop until ceiling clears to next stop depth
+                let stopTime = 0;
+                const maxStopTime = 120; // safety limit
+                while (stopTime < maxStopTime) {
+                    const ceilCheck = this.model.ceilingDepth(gfAtNext);
+                    if (ceilCheck <= Math.max(0, nextStopDepth)) break;
+                    this.model.loadConstant(stopDepth, 1);
+                    const pamb = this.model.pAmb(stopDepth);
+                    const gasStep = this.rmv * pamb * 1;
+                    tp -= gasStep / this.tankVol;
+                    gasUsed += gasStep;
+                    d = stopDepth;
+                    t += 1;
+                    stopTime += 1;
+                    record('deco');
+                }
+
+                if (stopTime > 0) {
+                    decoStops.push({ depth: stopDepth, time: stopTime });
+                    segments.push({
+                        phase: 'deco', from: stopDepth, to: stopDepth,
+                        rate: 0, duration: stopTime
+                    });
+                }
+                prevDepth = stopDepth;
+            }
+        }
+
+        // === SAFETY STOP ===
+        let didSafetyStop = false;
+        if (this.safetyStopEnabled && prevDepth > this.safetyStopDepth + 0.1) {
+            // Ascend to safety stop depth
+            const transTime = (prevDepth - this.safetyStopDepth) / this.ascentRate;
+            segments.push({
+                phase: 'ascent', from: prevDepth, to: this.safetyStopDepth,
+                rate: this.ascentRate, duration: transTime
+            });
+            processSegment(prevDepth, this.safetyStopDepth, transTime, 'ascent');
+            prevDepth = this.safetyStopDepth;
+
+            // Hold at safety stop
+            segments.push({
+                phase: 'safety', from: this.safetyStopDepth, to: this.safetyStopDepth,
+                rate: 0, duration: this.safetyStopTime
+            });
+            processSegment(this.safetyStopDepth, this.safetyStopDepth, this.safetyStopTime, 'safety');
+            prevDepth = this.safetyStopDepth;
+            didSafetyStop = true;
+        }
+
+        // Final ascent to surface
+        if (prevDepth > 0.1) {
+            const transTime = prevDepth / this.ascentRate;
+            segments.push({
+                phase: 'ascent', from: prevDepth, to: 0,
+                rate: this.ascentRate, duration: transTime
+            });
+            processSegment(prevDepth, 0, transTime, 'ascent');
+        }
+
+        // Summary
+        const maxDepth = Math.max(...tl.map(p => p.depth));
+        const minNDL = Math.min(...tl.filter(p => p.depth > 0).map(p => p.ndl));
+        const maxCeiling = Math.max(...tl.map(p => p.ceiling));
+        const finalLead = this.model.leadingTissue();
+        const tissues = this.model.tissueData();
+        const totalDecoTime = decoStops.reduce((sum, s) => sum + s.time, 0);
+
+        // Reserve: 1/3 for dives >30m, 1/4 for shallower
+        const reserveFraction = maxDepth > 30 ? 1/3 : 1/4;
+        const reserveBar = this.tankPress * reserveFraction;
+        const usableGas = this.tankPress - reserveBar;
+        const gasExceeded = tp < reserveBar;
+        // Find time when gas first drops below reserve
+        let gasExceededTime = null;
+        if (gasExceeded) {
+            for (const p of tl) {
+                if (p.tankPressure < reserveBar) {
+                    gasExceededTime = p.time;
+                    break;
+                }
+            }
+        }
+
+        return {
+            timeline: tl,
+            segments,
+            tissues,
+            decoStops,
+            didSafetyStop,
+            ndlExceededTime,
+            gasExceededTime,
+            summary: {
+                maxDepth,
+                totalTime: t,
+                gasUsed,
+                tankEnd: tp,
+                tankStart: this.tankPress,
+                minNDL,
+                maxCeiling,
+                leadingTissue: finalLead.index + 1,
+                leadingLoad: finalLead.loading,
+                totalDecoTime,
+                inDeco: decoStops.length > 0,
+                reserveFraction,
+                reserveBar,
+                usableGas,
+                gasExceeded
+            }
+        };
+    }
+}
+
+// ============================================================
+// DEPTH PROFILE CHART (Canvas)
+// ============================================================
+function drawDepthChart(canvas, timeline, ndlExceededTime, gasExceededTime, reserveBar, segments) {
+    if (!canvas || !timeline || timeline.length === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width || canvas.parentElement.clientWidth || 600;
+    const H = parseInt(canvas.getAttribute('height')) || 220;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const pad = { top: 20, right: 20, bottom: 35, left: 50 };
+    const cw = W - pad.left - pad.right;
+    const ch = H - pad.top - pad.bottom;
+
+    const maxT = Math.max(...timeline.map(p => p.time)) || 1;
+    const maxD = Math.max(...timeline.map(p => p.depth), ...timeline.map(p => p.ceiling)) || 1;
+    const maxDRound = Math.ceil(maxD / 5) * 5;
+
+    const xScale = t => pad.left + (t / maxT) * cw;
+    const yScale = d => pad.top + (d / maxDRound) * ch;
+
+    // Background
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, W, H);
+
+    // Grid
+    ctx.strokeStyle = '#21262d';
+    ctx.lineWidth = 0.5;
+    const tStep = maxT <= 30 ? 5 : maxT <= 60 ? 10 : maxT <= 120 ? 15 : 30;
+    for (let gt = 0; gt <= maxT; gt += tStep) {
+        const x = xScale(gt);
+        ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + ch); ctx.stroke();
+    }
+    const dStep = maxDRound <= 20 ? 5 : maxDRound <= 50 ? 10 : 15;
+    for (let gd = 0; gd <= maxDRound; gd += dStep) {
+        const y = yScale(gd);
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + cw, y); ctx.stroke();
+    }
+
+    // Phase-colored depth area fill
+    // Split timeline into chunks by phase for coloring
+    const phaseColors = {
+        'descent': 'rgba(88,166,255,0.15)',
+        'bottom':  'rgba(88,166,255,0.10)',
+        'ascent':  'rgba(63,185,80,0.10)',
+        'deco':    'rgba(248,81,73,0.20)',
+        'safety':  'rgba(210,153,34,0.18)',
+        'surface': 'rgba(88,166,255,0.05)'
+    };
+    // Draw filled area per phase segment
+    let prevPhase = timeline[0].phase;
+    let segStart = 0;
+    for (let i = 1; i <= timeline.length; i++) {
+        const curPhase = i < timeline.length ? timeline[i].phase : null;
+        if (curPhase !== prevPhase || i === timeline.length) {
+            // Draw fill for segment [segStart..i-1]
+            ctx.beginPath();
+            ctx.moveTo(xScale(timeline[segStart].time), yScale(0));
+            for (let j = segStart; j < i; j++) {
+                ctx.lineTo(xScale(timeline[j].time), yScale(timeline[j].depth));
+            }
+            ctx.lineTo(xScale(timeline[i-1].time), yScale(0));
+            ctx.closePath();
+            ctx.fillStyle = phaseColors[prevPhase] || phaseColors['bottom'];
+            ctx.fill();
+            segStart = i;
+            prevPhase = curPhase;
+        }
+    }
+
+    // Depth line - color segments by phase
+    const phaseLineColors = {
+        'descent': '#58a6ff',
+        'bottom':  '#58a6ff',
+        'ascent':  '#3fb950',
+        'deco':    '#f85149',
+        'safety':  '#d29922',
+        'surface': '#58a6ff'
+    };
+    for (let i = 1; i < timeline.length; i++) {
+        ctx.beginPath();
+        ctx.moveTo(xScale(timeline[i-1].time), yScale(timeline[i-1].depth));
+        ctx.lineTo(xScale(timeline[i].time), yScale(timeline[i].depth));
+        ctx.strokeStyle = phaseLineColors[timeline[i].phase] || '#58a6ff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    // Ceiling line (red dashed)
+    ctx.beginPath();
+    ctx.setLineDash([4, 3]);
+    for (let i = 0; i < timeline.length; i++) {
+        const p = timeline[i];
+        (i === 0 ? ctx.moveTo : ctx.lineTo).call(ctx, xScale(p.time), yScale(p.ceiling));
+    }
+    ctx.strokeStyle = '#f85149';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // NDL exceeded marker
+    if (ndlExceededTime !== null) {
+        const nx = xScale(ndlExceededTime);
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = '#f85149';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(nx, pad.top);
+        ctx.lineTo(nx, pad.top + ch);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#f85149';
+        ctx.font = 'bold 10px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚠ NDL', nx, pad.top - 4);
+    }
+
+    // Gas reserve exceeded marker
+    if (gasExceededTime !== null) {
+        const gx = xScale(gasExceededTime);
+        // Shade the area from gasExceededTime to end with orange/red tint
+        const endX = xScale(timeline[timeline.length - 1].time);
+        ctx.fillStyle = 'rgba(210,153,34,0.12)';
+        ctx.fillRect(gx, pad.top, endX - gx, ch);
+        // Vertical dashed line at breach point
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = '#d29922';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(gx, pad.top);
+        ctx.lineTo(gx, pad.top + ch);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Label
+        ctx.fillStyle = '#d29922';
+        ctx.font = 'bold 10px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        const labelY = ndlExceededTime !== null ? pad.top + ch + 26 : pad.top - 4;
+        ctx.fillText('⛽ RESERVE', gx, labelY);
+    }
+
+    // Deco stop markers (small horizontal bars)
+    for (const p of timeline) {
+        if (p.phase === 'deco') {
+            const x = xScale(p.time);
+            const y = yScale(p.depth);
+            ctx.fillStyle = 'rgba(248,81,73,0.5)';
+            ctx.fillRect(x - 1, y - 2, 2, 4);
+        }
+    }
+
+    // Safety stop marker
+    const safetyPoints = timeline.filter(p => p.phase === 'safety');
+    if (safetyPoints.length > 0) {
+        const sx1 = xScale(safetyPoints[0].time);
+        const sx2 = xScale(safetyPoints[safetyPoints.length - 1].time);
+        const sy = yScale(safetyPoints[0].depth);
+        ctx.fillStyle = 'rgba(210,153,34,0.3)';
+        ctx.fillRect(sx1, sy - 6, sx2 - sx1, 12);
+        ctx.fillStyle = '#d29922';
+        ctx.font = '9px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('SAFETY', (sx1 + sx2) / 2, sy - 8);
+    }
+
+    // Axes
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top);
+    ctx.lineTo(pad.left, pad.top + ch);
+    ctx.lineTo(pad.left + cw, pad.top + ch);
+    ctx.stroke();
+
+    // Labels
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    for (let gt = 0; gt <= maxT; gt += tStep) {
+        ctx.fillText(gt + '', xScale(gt), pad.top + ch + 14);
+    }
+    ctx.fillText('Time (min)', pad.left + cw / 2, H - 4);
+
+    ctx.textAlign = 'right';
+    for (let gd = 0; gd <= maxDRound; gd += dStep) {
+        ctx.fillText(gd + 'm', pad.left - 6, yScale(gd) + 3);
+    }
+
+    // Waypoint bottom-time annotations
+    if (segments && segments.length > 0) {
+        let cumTime = 0;
+        ctx.font = 'bold 10px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        for (const seg of segments) {
+            if (seg.phase === 'bottom' && seg.duration > 0) {
+                const tStart = cumTime;
+                const tEnd = cumTime + seg.duration;
+                const tMid = (tStart + tEnd) / 2;
+                const depth = seg.from;
+                const x1 = xScale(tStart);
+                const x2 = xScale(tEnd);
+                const xMid = xScale(tMid);
+                const y = yScale(depth);
+
+                // Bracket lines at start and end of bottom time
+                const tickH = 6;
+                ctx.strokeStyle = 'rgba(139,148,158,0.5)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x1, y + tickH);
+                ctx.lineTo(x1, y + tickH + 4);
+                ctx.lineTo(x2, y + tickH + 4);
+                ctx.lineTo(x2, y + tickH);
+                ctx.stroke();
+
+                // Label: "30m / 10 min"
+                const label = `${depth}m / ${seg.duration} min`;
+                ctx.fillStyle = '#c9d1d9';
+                ctx.fillText(label, xMid, y + tickH + 15);
+            }
+            cumTime += seg.duration;
+        }
+    }
+
+    // Legend
+    const legendItems = [
+        { color: '#58a6ff', dash: false, label: 'Depth' },
+        { color: '#3fb950', dash: false, label: 'Ascent' },
+        { color: '#f85149', dash: true,  label: 'Ceiling' },
+        { color: '#f85149', dash: false, label: 'Deco' },
+        { color: '#d29922', dash: false, label: 'Safety' },
+        { color: '#d29922', dash: true,  label: 'Reserve' }
+    ];
+    ctx.textAlign = 'left';
+    ctx.font = '9px -apple-system, sans-serif';
+    let lx = pad.left + 8;
+    for (const item of legendItems) {
+        ctx.strokeStyle = item.color;
+        ctx.fillStyle = item.color;
+        ctx.lineWidth = 2;
+        if (item.dash) ctx.setLineDash([3, 2]);
+        else ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(lx, pad.top + 8);
+        ctx.lineTo(lx + 14, pad.top + 8);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#8b949e';
+        ctx.fillText(item.label, lx + 17, pad.top + 11);
+        lx += ctx.measureText(item.label).width + 28;
+    }
+}
+
+// ============================================================
+// TISSUE BAR CHART (HTML)
+// ============================================================
+function drawTissueBars(containerId, tissues) {
+    const el = document.getElementById(containerId);
+    el.innerHTML = tissues.map(t => {
+        const pct = Math.max(0, Math.min(t.loading, 120));
+        let color;
+        if (t.loading > 100) color = 'var(--red)';
+        else if (t.loading > 80) color = 'var(--orange)';
+        else if (t.loading > 60) color = 'var(--yellow)';
+        else color = 'var(--green)';
+        return `<div class="tissue-bar-row">
+            <span class="tissue-bar-label">${t.num}</span>
+            <div class="tissue-bar-track">
+                <div class="tissue-bar-fill" style="width:${pct}%;background:${color}"></div>
+            </div>
+            <span class="tissue-bar-pct" style="color:${color}">${t.loading.toFixed(0)}%</span>
+            <span class="tissue-bar-ht">${t.halfTime}m</span>
+        </div>`;
+    }).join('');
+}
+
+// ============================================================
+// UI STATE
+// ============================================================
+let waypoints = [];
+let lastResult = null;
+
+function getConfig() {
+    return {
+        tankVolume:   parseFloat(document.getElementById('tankVolume').value),
+        tankPressure: parseFloat(document.getElementById('tankPressure').value),
+        rmv:          parseFloat(document.getElementById('rmv').value),
+        gfLow:        parseFloat(document.getElementById('gfLow').value),
+        gfHigh:       parseFloat(document.getElementById('gfHigh').value),
+        descentRate:  parseFloat(document.getElementById('descentRate').value),
+        ascentRate:   parseFloat(document.getElementById('ascentRate').value),
+        safetyStopEnabled: document.getElementById('safetyStopEnabled').checked,
+        safetyStopDepth:   parseFloat(document.getElementById('safetyStopDepth').value),
+        safetyStopTime:    parseFloat(document.getElementById('safetyStopTime').value)
+    };
+}
+
+// Format time as M:SS
+function fmtTime(min) {
+    const m = Math.floor(min);
+    const s = Math.round((min - m) * 60);
+    return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+// ============================================================
+// WAYPOINT MANAGEMENT
+// ============================================================
+function addWaypoint() {
+    const depth = parseFloat(document.getElementById('wpDepth').value);
+    const time  = parseFloat(document.getElementById('wpTime').value);
+    if (isNaN(depth) || depth < 0 || isNaN(time) || time < 0) {
+        return toast('Invalid depth or time', 'error');
+    }
+    waypoints.push({ depth, time });
+    renderWaypoints();
+}
+
+function removeWaypoint(i) {
+    waypoints.splice(i, 1);
+    renderWaypoints();
+}
+
+function moveWaypoint(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= waypoints.length) return;
+    [waypoints[i], waypoints[j]] = [waypoints[j], waypoints[i]];
+    renderWaypoints();
+}
+
+function renderWaypoints() {
+    const el = document.getElementById('wpList');
+    if (waypoints.length === 0) {
+        el.innerHTML = '<div class="wp-empty">No waypoints defined</div>';
+        document.getElementById('segmentPreview').innerHTML = '';
+        return;
+    }
+    el.innerHTML = waypoints.map((wp, i) => `
+        <div class="waypoint-item">
+            <span><strong>${wp.depth}m</strong> for ${wp.time} min</span>
+            <span>
+                <button class="btn-small btn-secondary" onclick="moveWaypoint(${i},-1)">&uarr;</button>
+                <button class="btn-small btn-secondary" onclick="moveWaypoint(${i},1)">&darr;</button>
+                <button class="btn-small btn-danger" onclick="removeWaypoint(${i})">&times;</button>
+            </span>
+        </div>
+    `).join('');
+    renderSegmentPreview();
+}
+
+function renderSegmentPreview() {
+    const cfg = getConfig();
+    const el = document.getElementById('segmentPreview');
+    let html = '<div class="segment-preview"><strong style="color:var(--text-dim)">Profile Preview:</strong>';
+    let prevD = 0, cumT = 0;
+
+    for (const wp of waypoints) {
+        const diff = wp.depth - prevD;
+        const rate = diff >= 0 ? cfg.descentRate : cfg.ascentRate;
+        const tTrans = Math.abs(diff) / rate;
+        if (Math.abs(diff) > 0.1) {
+            const phase = diff > 0 ? '↓ Descent' : '↑ Ascent';
+            html += `<div class="seg"><span class="seg-label">${phase}</span>
+                <span>${prevD}m → ${wp.depth}m @ ${rate} m/min</span>
+                <span class="seg-time">${fmtTime(tTrans)}</span></div>`;
+            cumT += tTrans;
+        }
+        if (wp.time > 0) {
+            html += `<div class="seg"><span class="seg-label">⬤ Bottom</span>
+                <span>${wp.depth}m for ${wp.time} min</span>
+                <span class="seg-time">${fmtTime(wp.time)}</span></div>`;
+            cumT += wp.time;
+        }
+        prevD = wp.depth;
+    }
+    if (prevD > 0.1) {
+        // Safety stop preview
+        if (cfg.safetyStopEnabled && prevD > cfg.safetyStopDepth) {
+            const tAscToSafety = (prevD - cfg.safetyStopDepth) / cfg.ascentRate;
+            html += `<div class="seg"><span class="seg-label">↑ Ascent</span>
+                <span>${prevD}m → ${cfg.safetyStopDepth}m @ ${cfg.ascentRate} m/min</span>
+                <span class="seg-time">${fmtTime(tAscToSafety)}</span></div>`;
+            cumT += tAscToSafety;
+            html += `<div class="seg"><span class="seg-label" style="color:var(--yellow)">🛑 Safety</span>
+                <span>${cfg.safetyStopDepth}m for ${cfg.safetyStopTime} min</span>
+                <span class="seg-time">${fmtTime(cfg.safetyStopTime)}</span></div>`;
+            cumT += cfg.safetyStopTime;
+            const tAscFinal = cfg.safetyStopDepth / cfg.ascentRate;
+            html += `<div class="seg"><span class="seg-label">↑ Ascent</span>
+                <span>${cfg.safetyStopDepth}m → 0m @ ${cfg.ascentRate} m/min</span>
+                <span class="seg-time">${fmtTime(tAscFinal)}</span></div>`;
+            cumT += tAscFinal;
+        } else {
+            const tAsc = prevD / cfg.ascentRate;
+            html += `<div class="seg"><span class="seg-label">↑ Ascent</span>
+                <span>${prevD}m → 0m @ ${cfg.ascentRate} m/min</span>
+                <span class="seg-time">${fmtTime(tAsc)}</span></div>`;
+            cumT += tAsc;
+        }
+    }
+    html += `<div class="seg" style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">
+        <span class="seg-label"><strong>Total</strong></span><span></span>
+        <span class="seg-time"><strong>${fmtTime(cumT)}</strong></span></div>`;
+    html += '</div>';
+    el.innerHTML = html;
+}
+
+// ============================================================
+// CALCULATE & DISPLAY
+// ============================================================
+function calculateDive() {
+    if (waypoints.length === 0) return toast('Add at least one waypoint', 'error');
+    const cfg = getConfig();
+    if (cfg.gfLow >= cfg.gfHigh) return toast('GF-Low must be less than GF-High', 'error');
+    if (cfg.gfLow < 5 || cfg.gfHigh > 100) return toast('GF values out of range', 'error');
+
+    try {
+        const sim = new DiveSimulator(cfg);
+        lastResult = sim.simulate(waypoints);
+        document.getElementById('placeholder').style.display = 'none';
+        document.getElementById('resultsArea').style.display = 'block';
+        displayResults(lastResult);
+        toast('Dive calculated', 'success');
+    } catch (e) {
+        toast('Calculation error: ' + e.message, 'error');
+        console.error(e);
+    }
+}
+
+function displayResults(res) {
+    const s = res.summary;
+
+    // Deco banner
+    const decoBanner = document.getElementById('decoBanner');
+    if (s.inDeco) {
+        let stopsHtml = res.decoStops.map(ds =>
+            `<tr><td><strong>${ds.depth}m</strong></td><td>${ds.time} min</td></tr>`
+        ).join('');
+        decoBanner.innerHTML = `<div class="deco-banner">
+            <div class="icon">⚠️</div>
+            <div class="text">
+                <strong>DECOMPRESSION DIVE</strong> — NDL exceeded at ${fmtTime(res.ndlExceededTime || 0)}<br>
+                <span class="detail">Mandatory deco stops required. Total deco time: ${s.totalDecoTime} min</span>
+                <table class="deco-stops-table">${stopsHtml}</table>
+            </div>
+        </div>`;
+    } else {
+        decoBanner.innerHTML = '';
+    }
+
+    // Safety stop banner
+    const safetyBanner = document.getElementById('safetyBanner');
+    if (res.didSafetyStop && !s.inDeco) {
+        const cfg = getConfig();
+        safetyBanner.innerHTML = `<div class="safety-banner">
+            ✅ Safety stop: ${cfg.safetyStopTime} min at ${cfg.safetyStopDepth}m included
+        </div>`;
+    } else if (res.didSafetyStop && s.inDeco) {
+        const cfg = getConfig();
+        safetyBanner.innerHTML = `<div class="safety-banner">
+            🛑 Safety stop: ${cfg.safetyStopTime} min at ${cfg.safetyStopDepth}m included (in addition to deco stops)
+        </div>`;
+    } else {
+        safetyBanner.innerHTML = '';
+    }
+
+    // Gas reserve banner
+    const gasBanner = document.getElementById('gasBanner');
+    const reservePct = Math.round(s.reserveFraction * 100);
+    const reserveRule = s.maxDepth > 30 ? 'Rule of thirds (depth > 30m)' : 'Rule of quarters (depth ≤ 30m)';
+    if (s.gasExceeded) {
+        const deficit = Math.round(s.reserveBar - s.tankEnd);
+        const isCritical = s.tankEnd <= 0;
+        gasBanner.innerHTML = `<div class="gas-banner ${isCritical ? 'critical' : ''}">
+            <div class="icon">⛽</div>
+            <div class="text">
+                <strong>${isCritical ? 'OUT OF GAS' : 'GAS EXCEEDS RESERVE'}</strong> — ${reserveRule}<br>
+                <span class="detail">Reserve: ${Math.round(s.reserveBar)} bar (1/${Math.round(1/s.reserveFraction)} of ${s.tankStart} bar).
+                Tank end: ${Math.max(0, Math.round(s.tankEnd))} bar — ${isCritical ? 'tank is empty!' : deficit + ' bar into reserve.'}
+                ${res.gasExceededTime !== null ? 'Reserve breached at ' + fmtTime(res.gasExceededTime) + ' into the dive.' : ''}</span>
+            </div>
+        </div>`;
+    } else {
+        gasBanner.innerHTML = '';
+    }
+
+    // Summary cards
+    const grid = document.getElementById('summaryGrid');
+    const cards = [
+        { label: 'Max Depth', value: s.maxDepth.toFixed(1), unit: 'm' },
+        { label: 'Total Time', value: fmtTime(s.totalTime), unit: '' },
+        { label: 'Tank End', value: Math.max(0, s.tankEnd).toFixed(0), unit: 'bar',
+          cls: s.gasExceeded ? 'danger' : s.tankEnd < s.reserveBar + 10 ? 'warning' : '' },
+        { label: 'Reserve', value: Math.round(s.reserveBar), unit: `bar (1/${Math.round(1/s.reserveFraction)})`,
+          cls: s.gasExceeded ? 'danger' : '' },
+        { label: 'Min NDL', value: s.minNDL >= 999 ? '∞' : s.minNDL + '', unit: 'min',
+          cls: s.minNDL <= 0 ? 'danger' : s.minNDL <= 5 ? 'warning' : '' },
+        { label: 'Max Ceiling', value: s.maxCeiling.toFixed(1), unit: 'm',
+          cls: s.maxCeiling > 0 ? 'danger' : '' },
+        { label: 'Leading Tissue', value: '#' + s.leadingTissue, unit: s.leadingLoad.toFixed(0) + '%',
+          cls: s.leadingLoad > 80 ? 'warning' : '' },
+        { label: s.inDeco ? 'Deco Time' : 'Gas Used',
+          value: s.inDeco ? s.totalDecoTime + '' : s.gasUsed.toFixed(0),
+          unit: s.inDeco ? 'min' : 'L (sfc)',
+          cls: s.inDeco ? 'danger' : '' }
+    ];
+    grid.innerHTML = cards.map(c =>
+        `<div class="summary-card ${c.cls || ''}">
+            <div class="label">${c.label}</div>
+            <div class="value">${c.value} <span class="unit">${c.unit}</span></div>
+        </div>`
+    ).join('');
+
+    // Depth chart
+    drawDepthChart(document.getElementById('depthChart'), res.timeline, res.ndlExceededTime, res.gasExceededTime, res.summary.reserveBar, res.segments);
+
+    // Tissue bars
+    drawTissueBars('tissueBars', res.tissues);
+
+    // Timeline table — include phase coloring for deco/safety
+    const tl = res.timeline;
+    const phaseColor = p => {
+        if (p.phase === 'deco') return 'var(--red)';
+        if (p.phase === 'safety') return 'var(--yellow)';
+        if (p.phase === 'descent') return 'var(--accent)';
+        if (p.phase === 'ascent') return 'var(--green)';
+        return 'var(--text-dim)';
+    };
+    document.getElementById('tblTimeline').innerHTML = tl
+        .filter((_, i) => i === 0 || i === tl.length - 1 || i % Math.max(1, Math.floor(tl.length / 60)) === 0)
+        .map(p => {
+            let rowStyle = '';
+            if (p.tankPressure < s.reserveBar) rowStyle = 'background:rgba(210,153,34,0.10)';
+            if (p.inDeco) rowStyle = 'background:rgba(248,81,73,0.06)';
+            if (p.tankPressure <= 0) rowStyle = 'background:rgba(248,81,73,0.15)';
+            return `<tr${rowStyle ? ` style="${rowStyle}"` : ''}>
+            <td>${fmtTime(p.time)}</td>
+            <td>${p.depth.toFixed(1)}</td>
+            <td style="color:${phaseColor(p)}">${p.phase}</td>
+            <td style="color:${p.tankPressure<s.reserveBar?'var(--orange)':''};${p.tankPressure<=0?'color:var(--red);font-weight:bold':''}">${Math.max(0,p.tankPressure).toFixed(0)}</td>
+            <td style="color:${p.ndl<=0?'var(--red)':p.ndl<=5?'var(--orange)':p.ndl<=10?'var(--yellow)':'var(--green)'}">
+                ${p.ndl >= 999 ? '∞' : p.ndl}</td>
+            <td style="color:${p.ceiling>0?'var(--red)':'var(--text-dim)'}">${p.ceiling.toFixed(1)}</td>
+            <td>#${p.leadIdx} (${p.leadLoad.toFixed(0)}%)</td>
+        </tr>`}).join('');
+
+    // Gas table
+    document.getElementById('tblGas').innerHTML = tl
+        .filter((_, i) => i === 0 || i === tl.length - 1 || i % Math.max(1, Math.floor(tl.length / 40)) === 0)
+        .map(p => {
+            let rowStyle = '';
+            if (p.tankPressure < s.reserveBar) rowStyle = 'background:rgba(210,153,34,0.10)';
+            if (p.tankPressure <= 0) rowStyle = 'background:rgba(248,81,73,0.15)';
+            return `<tr${rowStyle ? ` style="${rowStyle}"` : ''}>
+            <td>${fmtTime(p.time)}</td>
+            <td>${p.depth.toFixed(1)}</td>
+            <td>${p.pAmb.toFixed(2)}</td>
+            <td>${p.gasRate.toFixed(2)}</td>
+            <td style="color:${p.tankPressure<s.reserveBar?'var(--orange)':''};${p.tankPressure<=0?'color:var(--red);font-weight:bold':''}">${Math.max(0,p.tankPressure).toFixed(0)}</td>
+            <td>${p.gasUsed.toFixed(0)}</td>
+        </tr>`}).join('');
+
+    // Tissue details table
+    document.getElementById('tblTissues').innerHTML = res.tissues.map(t => `<tr>
+        <td>${t.num}</td>
+        <td>${t.halfTime} min</td>
+        <td>${t.pN2.toFixed(4)}</td>
+        <td style="color:${t.ceiling>0?'var(--red)':'var(--text-dim)'}">${t.ceiling.toFixed(1)}</td>
+        <td style="color:${t.loading>100?'var(--red)':t.loading>80?'var(--orange)':t.loading>60?'var(--yellow)':'var(--green)'}">
+            ${t.loading.toFixed(1)}%</td>
+    </tr>`).join('');
+}
+
+// ============================================================
+// TABS
+// ============================================================
+function switchTab(ev, tabId) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    ev.target.classList.add('active');
+    document.getElementById(tabId).classList.add('active');
+}
+
+// ============================================================
+// LOCAL STORAGE
+// ============================================================
+function saveDive() {
+    const name = document.getElementById('diveName').value.trim() || 'Untitled ' + new Date().toLocaleDateString();
+    const cfg = getConfig();
+    const dive = { id: Date.now(), name, date: new Date().toISOString(), waypoints: [...waypoints], config: cfg };
+    const saved = JSON.parse(localStorage.getItem('diveplan_saved') || '[]');
+    saved.push(dive);
+    localStorage.setItem('diveplan_saved', JSON.stringify(saved));
+    renderSaved();
+    toast('Dive saved: ' + name, 'success');
+}
+
+function loadDive(id) {
+    const saved = JSON.parse(localStorage.getItem('diveplan_saved') || '[]');
+    const dive = saved.find(d => d.id === id);
+    if (!dive) return toast('Dive not found', 'error');
+
+    waypoints = [...dive.waypoints];
+    const c = dive.config;
+    document.getElementById('tankVolume').value   = c.tankVolume;
+    document.getElementById('tankPressure').value  = c.tankPressure;
+    document.getElementById('rmv').value           = c.rmv;
+    document.getElementById('gfLow').value         = c.gfLow;
+    document.getElementById('gfHigh').value        = c.gfHigh;
+    document.getElementById('descentRate').value   = c.descentRate;
+    document.getElementById('ascentRate').value    = c.ascentRate;
+    document.getElementById('diveName').value      = dive.name;
+    if (c.safetyStopEnabled !== undefined) {
+        document.getElementById('safetyStopEnabled').checked = c.safetyStopEnabled;
+        document.getElementById('safetyStopDepth').value = c.safetyStopDepth || 5;
+        document.getElementById('safetyStopTime').value = c.safetyStopTime || 5;
+    }
+    renderWaypoints();
+    toast('Loaded: ' + dive.name, 'success');
+}
+
+function deleteDive(id) {
+    let saved = JSON.parse(localStorage.getItem('diveplan_saved') || '[]');
+    saved = saved.filter(d => d.id !== id);
+    localStorage.setItem('diveplan_saved', JSON.stringify(saved));
+    renderSaved();
+    toast('Dive deleted', 'success');
+}
+
+function renderSaved() {
+    const saved = JSON.parse(localStorage.getItem('diveplan_saved') || '[]');
+    const el = document.getElementById('savedList');
+    if (saved.length === 0) {
+        el.innerHTML = '<p style="text-align:center;color:var(--text-dim);font-size:0.85em;padding:8px">No saved dives</p>';
+        return;
+    }
+    el.innerHTML = saved.sort((a,b) => b.id - a.id).map(d => {
+        const maxD = Math.max(...d.waypoints.map(w => w.depth));
+        const dt = new Date(d.date).toLocaleDateString();
+        return `<div class="saved-item">
+            <div>
+                <div class="saved-item-name">${d.name}</div>
+                <div class="saved-item-meta">${dt} · ${maxD}m · GF ${d.config.gfLow}/${d.config.gfHigh}</div>
+            </div>
+            <div style="display:flex;gap:4px">
+                <button class="btn-small btn-secondary" onclick="loadDive(${d.id})">Load</button>
+                <button class="btn-small btn-danger" onclick="deleteDive(${d.id})">✕</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ============================================================
+// CLEAR & TOAST
+// ============================================================
+function clearAll() {
+    waypoints = [];
+    lastResult = null;
+    renderWaypoints();
+    document.getElementById('placeholder').style.display = 'block';
+    document.getElementById('resultsArea').style.display = 'none';
+}
+
+function toast(msg, type) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast ' + type + ' show';
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+renderSaved();
+
+// Recalculate segment preview when rates change
+['descentRate', 'ascentRate', 'safetyStopDepth', 'safetyStopTime'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => {
+        if (waypoints.length > 0) renderSegmentPreview();
+    });
+});
+document.getElementById('safetyStopEnabled').addEventListener('change', () => {
+    if (waypoints.length > 0) renderSegmentPreview();
+});
+
+// Handle window resize for chart
+window.addEventListener('resize', () => {
+    if (lastResult) drawDepthChart(document.getElementById('depthChart'), lastResult.timeline, lastResult.ndlExceededTime, lastResult.gasExceededTime, lastResult.summary.reserveBar, lastResult.segments);
+});
+</script>
+</body>
+</html>
