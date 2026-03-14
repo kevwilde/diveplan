@@ -441,6 +441,80 @@ class DecoModel {
 }
 
 // ============================================================
+// TTS — TIME TO SURFACE
+// Forward-simulates the ascent from the current tissue state.
+// Uses a coarser 30-second timestep for speed; accuracy is
+// sufficient for display purposes.
+// ============================================================
+const DT_TTS = 0.5;  // 30-second steps
+
+function computeTTS(pN2State, depth, ascentRate, gfLow, gfHigh, fN2) {
+    if (depth < 0.5) return 0;
+
+    const m = new DecoModel(gfLow * 100, gfHigh * 100, fN2);
+    m.pN2 = new Float64Array(pN2State);
+
+    const ceilGfHigh = m.ceilingDepth(m.gfHigh);
+    if (ceilGfHigh <= 0.1) {
+        return depth / ascentRate;   // NDL — straight to surface
+    }
+
+    let tts = 0;
+    let currDepth = depth;
+
+    // Anchor for the GF ramp (deepest mandatory stop)
+    const ceilGfLow  = m.ceilingDepth(m.gfLow);
+    const firstStop  = Math.max(3, Math.ceil(Math.max(ceilGfLow, ceilGfHigh) / 3) * 3);
+
+    let stopDepth;
+    if (currDepth > firstStop + 0.1) {
+        // Ascend to first stop
+        const ascentTime = (currDepth - firstStop) / ascentRate;
+        m.loadLinear(currDepth, -ascentRate, ascentTime);
+        tts += ascentTime;
+        currDepth = firstStop;
+        stopDepth = firstStop;
+    } else {
+        // Already at or shallower than first stop (mid-ascent or mid-stop)
+        const actualCeil = Math.max(0, ceilGfHigh);
+        stopDepth = Math.max(3, Math.ceil(actualCeil / 3) * 3);
+        if (currDepth > stopDepth + 0.1) {
+            const ascentTime = (currDepth - stopDepth) / ascentRate;
+            m.loadLinear(currDepth, -ascentRate, ascentTime);
+            tts += ascentTime;
+            currDepth = stopDepth;
+        }
+    }
+
+    // Work through each 3 m deco stop
+    while (stopDepth >= 3) {
+        const nextStop = stopDepth - 3;
+        const gfAtNext = nextStop <= 0
+            ? m.gfHigh
+            : m.gfLow + (m.gfHigh - m.gfLow) * (firstStop - nextStop) / firstStop;
+
+        let stopTime = 0;
+        let ceil;
+        do {
+            m.loadConstant(stopDepth, DT_TTS);
+            stopTime += DT_TTS;
+            ceil = m.ceilingDepth(gfAtNext);
+        } while (ceil > nextStop + 0.1 && stopTime < 240);
+
+        tts += stopTime;
+
+        // Ascend 3 m to next stop
+        const ascentTime = 3 / ascentRate;
+        m.loadLinear(stopDepth, -ascentRate, ascentTime);
+        tts += ascentTime;
+
+        stopDepth = nextStop;
+    }
+
+    return tts;
+}
+
+// ============================================================
 // DIVE SIMULATOR
 // Processes waypoints with automatic transitions between depths.
 // Each waypoint = { depth (m), time (min at that depth) }
@@ -470,6 +544,7 @@ class DiveSimulator {
         let gasUsed = 0;         // cumulative gas used (surface-equiv L)
         let ndlExceededTime = null; // time when NDL first hit 0
         let inDeco = false;
+        let maxTTS = 0;
 
         const record = (phase) => {
             const pamb = this.model.pAmb(d);
@@ -477,6 +552,9 @@ class DiveSimulator {
             const ndl = this.model.ndl(d);
             const ceil = this.model.ceilingDepth(this.model.gfHigh);
             const lead = this.model.leadingTissue();
+            const tts  = computeTTS(this.model.pN2, d, this.ascentRate,
+                                    this.model.gfLow, this.model.gfHigh, this.model.fN2);
+            if (tts > maxTTS) maxTTS = tts;
             if (ndl <= 0 && ndlExceededTime === null && d > 0.5) {
                 ndlExceededTime = t;
                 inDeco = true;
@@ -485,7 +563,7 @@ class DiveSimulator {
                 time: t, depth: d, phase,
                 tankPressure: tp, gasUsed,
                 pAmb: pamb, gasRate,
-                ndl, ceiling: ceil,
+                ndl, ceiling: ceil, tts,
                 leadIdx: lead.index + 1,
                 leadLoad: lead.loading,
                 inDeco: ceil > 0.1,
@@ -717,7 +795,8 @@ class DiveSimulator {
                 fO2: this.fO2,
                 fN2: this.fN2,
                 mod14: getMOD(this.fO2, 1.4),
-                mod16: getMOD(this.fO2, 1.6)
+                mod16: getMOD(this.fO2, 1.6),
+                maxTTS
             }
         };
     }
@@ -733,7 +812,7 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
 
     const W = el.clientWidth || 600;
     const H = 320;
-    const margin = { top: 28, right: 58, bottom: 38, left: 50 };
+    const margin = { top: 28, right: 105, bottom: 38, left: 50 };
     const w = W - margin.left - margin.right;
     const h = H - margin.top - margin.bottom;
 
@@ -743,19 +822,22 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
     // Scales
-    const maxT = d3.max(timeline, d => d.time) || 1;
-    const maxD = Math.ceil(Math.max(d3.max(timeline, d => d.depth), d3.max(timeline, d => d.ceiling)) / 5) * 5 || 10;
+    const maxT   = d3.max(timeline, d => d.time) || 1;
+    const maxD   = Math.ceil(Math.max(d3.max(timeline, d => d.depth), d3.max(timeline, d => d.ceiling)) / 5) * 5 || 10;
     const maxGas = d3.max(timeline, d => d.tankPressure) || 200;
     const gasTop = Math.ceil(maxGas / 25) * 25;
+    const rawMaxTTS = d3.max(timeline, d => d.tts || 0) || 0;
+    const ttsTop = Math.max(Math.ceil(rawMaxTTS / 5) * 5, 5);
 
-    const x = d3.scaleLinear().domain([0, maxT]).range([0, w]);
+    const x      = d3.scaleLinear().domain([0, maxT]).range([0, w]);
     const yDepth = d3.scaleLinear().domain([0, maxD]).range([0, h]);
-    const yGas = d3.scaleLinear().domain([0, gasTop]).range([h, 0]);
+    const yGas   = d3.scaleLinear().domain([0, gasTop]).range([h, 0]);
+    const yTTS   = d3.scaleLinear().domain([0, ttsTop]).range([h, 0]);
 
     // Grid
-    const tStep = maxT <= 30 ? 5 : maxT <= 60 ? 10 : maxT <= 120 ? 15 : 30;
+    const tStep  = maxT <= 30 ? 5 : maxT <= 60 ? 10 : maxT <= 120 ? 15 : 30;
     const tTicks = d3.range(0, maxT + 0.1, tStep);
-    const dStep = maxD <= 20 ? 5 : maxD <= 50 ? 10 : 15;
+    const dStep  = maxD <= 20 ? 5 : maxD <= 50 ? 10 : 15;
     const dTicks = d3.range(0, maxD + 0.1, dStep);
 
     g.selectAll('.gv').data(tTicks).enter().append('line')
@@ -765,67 +847,78 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
         .attr('x1', 0).attr('x2', w).attr('y1', d => yDepth(d)).attr('y2', d => yDepth(d))
         .attr('stroke', '#21262d').attr('stroke-width', 0.5);
 
-    // Phase-colored area fills
+    // ── Toggleable line groups ────────────────────────────────
+    const gDepth   = g.append('g');
+    const gTTS     = g.append('g');
+    const gCeiling = g.append('g');
+    const gGas     = g.append('g');
+    const gReserve = g.append('g');
+
+    // ── Depth: phase-colored area fills + lines (into gDepth) ─
     const phaseAreaColors = {
         'descent': 'rgba(88,166,255,0.15)', 'bottom': 'rgba(88,166,255,0.10)',
-        'ascent': 'rgba(63,185,80,0.10)', 'deco': 'rgba(248,81,73,0.20)',
-        'safety': 'rgba(210,153,34,0.18)', 'surface': 'rgba(88,166,255,0.05)'
+        'ascent': 'rgba(63,185,80,0.10)',   'deco': 'rgba(248,81,73,0.20)',
+        'safety': 'rgba(210,153,34,0.18)',  'surface': 'rgba(88,166,255,0.05)'
     };
     const area = d3.area().x(d => x(d.time)).y0(yDepth(0)).y1(d => yDepth(d.depth));
     let si = 0;
     for (let i = 1; i <= timeline.length; i++) {
         if (i === timeline.length || timeline[i].phase !== timeline[si].phase) {
-            // Extend by one point into the next phase to close the gap at boundaries
             const slice = timeline.slice(si, Math.min(i + 1, timeline.length));
-            g.append('path').datum(slice).attr('d', area)
+            gDepth.append('path').datum(slice).attr('d', area)
                 .attr('fill', phaseAreaColors[slice[0].phase] || phaseAreaColors['bottom']);
             si = i;
         }
     }
 
-    // Gas exceeded shading
+    // Gas exceeded shading (always visible)
     if (gasExceededTime !== null) {
         g.append('rect').attr('x', x(gasExceededTime)).attr('y', 0)
             .attr('width', x(maxT) - x(gasExceededTime)).attr('height', h)
             .attr('fill', 'rgba(210,153,34,0.10)');
     }
 
-    // Depth line — colored per phase
     const phaseLineColors = {
         'descent': '#58a6ff', 'bottom': '#58a6ff', 'ascent': '#3fb950',
         'deco': '#f85149', 'safety': '#d29922', 'surface': '#58a6ff'
     };
     for (let i = 1; i < timeline.length; i++) {
-        g.append('line')
+        gDepth.append('line')
             .attr('x1', x(timeline[i-1].time)).attr('y1', yDepth(timeline[i-1].depth))
-            .attr('x2', x(timeline[i].time)).attr('y2', yDepth(timeline[i].depth))
+            .attr('x2', x(timeline[i].time))  .attr('y2', yDepth(timeline[i].depth))
             .attr('stroke', phaseLineColors[timeline[i].phase] || '#58a6ff')
             .attr('stroke-width', 2);
     }
 
-    // Ceiling line (red dashed)
-    g.append('path').datum(timeline)
+    // ── TTS line (into gTTS) ──────────────────────────────────
+    gTTS.append('path')
+        .datum(timeline)
+        .attr('d', d3.line().x(d => x(d.time)).y(d => yTTS(d.tts || 0)).defined(d => d.tts != null))
+        .attr('fill', 'none').attr('stroke', '#f0883e')
+        .attr('stroke-width', 1.5).attr('stroke-dasharray', '5,3');
+
+    // ── Ceiling line (into gCeiling) ─────────────────────────
+    gCeiling.append('path').datum(timeline)
         .attr('d', d3.line().x(d => x(d.time)).y(d => yDepth(d.ceiling)))
         .attr('fill', 'none').attr('stroke', '#f85149')
         .attr('stroke-width', 1.5).attr('stroke-dasharray', '4,3');
 
-    // Gas pressure line (right axis, purple)
-    g.append('path').datum(timeline)
+    // ── Gas line + reserve (into gGas / gReserve) ───────────
+    gGas.append('path').datum(timeline)
         .attr('d', d3.line().x(d => x(d.time)).y(d => yGas(Math.max(0, d.tankPressure))))
         .attr('fill', 'none').attr('stroke', '#bc8cff')
         .attr('stroke-width', 1.5).attr('opacity', 0.8);
 
-    // Reserve line (horizontal dashed)
     if (reserveBar > 0) {
-        g.append('line').attr('x1', 0).attr('x2', w)
+        gReserve.append('line').attr('x1', 0).attr('x2', w)
             .attr('y1', yGas(reserveBar)).attr('y2', yGas(reserveBar))
             .attr('stroke', '#d29922').attr('stroke-width', 1)
             .attr('stroke-dasharray', '6,4').attr('opacity', 0.6);
-        g.append('text').attr('x', w + 4).attr('y', yGas(reserveBar) + 3)
+        gReserve.append('text').attr('x', w + 4).attr('y', yGas(reserveBar) + 3)
             .attr('fill', '#d29922').attr('font-size', '8px').text('RSV');
     }
 
-    // NDL exceeded marker
+    // ── Event markers (always visible) ───────────────────────
     if (ndlExceededTime !== null) {
         g.append('line').attr('x1', x(ndlExceededTime)).attr('x2', x(ndlExceededTime))
             .attr('y1', 0).attr('y2', h)
@@ -834,8 +927,6 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
             .attr('text-anchor', 'middle').attr('fill', '#f85149')
             .attr('font-size', '10px').attr('font-weight', 'bold').text('⚠ NDL');
     }
-
-    // Gas reserve exceeded marker
     if (gasExceededTime !== null) {
         g.append('line').attr('x1', x(gasExceededTime)).attr('x2', x(gasExceededTime))
             .attr('y1', 0).attr('y2', h)
@@ -845,32 +936,24 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
             .attr('text-anchor', 'middle').attr('fill', '#d29922')
             .attr('font-size', '10px').attr('font-weight', 'bold').text('⛽ RESERVE');
     }
-
-    // Out-of-air (OOA) marker — solid red vertical line + skull icon at dive depth
     if (ooaTime !== null) {
-        const ox = x(ooaTime);
-        const oy = yDepth(ooaDepth || 0);
-        // Strong red vertical line
+        const ox = x(ooaTime), oy = yDepth(ooaDepth || 0);
         g.append('line').attr('x1', ox).attr('x2', ox).attr('y1', 0).attr('y2', h)
             .attr('stroke', '#f85149').attr('stroke-width', 2.5);
-        // Red circle marker on depth line
         g.append('circle').attr('cx', ox).attr('cy', oy).attr('r', 7)
             .attr('fill', '#f85149').attr('stroke', '#0d1117').attr('stroke-width', 1.5);
         g.append('text').attr('x', ox).attr('y', oy + 4)
             .attr('text-anchor', 'middle').attr('fill', '#fff')
             .attr('font-size', '9px').attr('font-weight', 'bold').text('✕');
-        // Top label — positioned to avoid overlap with NDL/RESERVE labels
         const labelY = (ndlExceededTime !== null || gasExceededTime !== null) ? h + 14 : -6;
         g.append('text').attr('x', ox).attr('y', labelY)
             .attr('text-anchor', 'middle').attr('fill', '#f85149')
             .attr('font-size', '10px').attr('font-weight', 'bold').text('💀 OOA');
     }
-
-    // Safety stop marker
     const safetyPts = timeline.filter(p => p.phase === 'safety');
     if (safetyPts.length > 0) {
         const sx1 = x(safetyPts[0].time), sx2 = x(safetyPts[safetyPts.length-1].time);
-        const sy = yDepth(safetyPts[0].depth);
+        const sy  = yDepth(safetyPts[0].depth);
         g.append('rect').attr('x', sx1).attr('y', sy - 6)
             .attr('width', Math.max(sx2 - sx1, 2)).attr('height', 12)
             .attr('fill', 'rgba(210,153,34,0.3)');
@@ -878,8 +961,6 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
             .attr('text-anchor', 'middle').attr('fill', '#d29922')
             .attr('font-size', '9px').text('SAFETY');
     }
-
-    // Waypoint bottom-time annotations
     if (segments && segments.length > 0) {
         let ct = 0;
         for (const seg of segments) {
@@ -898,12 +979,13 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
         }
     }
 
-    // Left axis — Depth (m)
+    // ── Axes ─────────────────────────────────────────────────
+    // Left: Depth (m)
     g.append('g').call(d3.axisLeft(yDepth).tickValues(dTicks).tickFormat(d => d + 'm'))
         .call(g => g.selectAll('text').attr('fill', '#8b949e').attr('font-size', '10px'))
         .call(g => g.selectAll('line, path').attr('stroke', '#30363d'));
 
-    // Bottom axis — Time (min)
+    // Bottom: Time (min)
     g.append('g').attr('transform', `translate(0,${h})`)
         .call(d3.axisBottom(x).tickValues(tTicks).tickFormat(d => d + ''))
         .call(g => g.selectAll('text').attr('fill', '#8b949e').attr('font-size', '10px'))
@@ -912,38 +994,55 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
         .attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', '10px')
         .text('Time (min)');
 
-    // Right axis — Gas (bar)
+    // Right 1: Gas (bar)
     const gasTicks = d3.range(0, gasTop + 1, gasTop <= 100 ? 25 : 50);
     g.append('g').attr('transform', `translate(${w},0)`)
-        .call(d3.axisRight(yGas).tickValues(gasTicks).tickFormat(d => d + ''))
-        .call(g => g.selectAll('text').attr('fill', '#bc8cff').attr('font-size', '10px'))
+        .call(d3.axisRight(yGas).tickValues(gasTicks).tickFormat(d => d + '').tickSize(4))
+        .call(g => g.selectAll('text').attr('fill', '#bc8cff').attr('font-size', '9px'))
         .call(g => g.selectAll('line, path').attr('stroke', '#30363d'));
-    g.append('text').attr('x', w + 45).attr('y', h / 2)
-        .attr('text-anchor', 'middle').attr('fill', '#bc8cff').attr('font-size', '10px')
-        .attr('transform', `rotate(-90,${w + 45},${h / 2})`).text('Gas (bar)');
+    g.append('text').attr('x', w + 28).attr('y', h / 2)
+        .attr('text-anchor', 'middle').attr('fill', '#bc8cff').attr('font-size', '9px')
+        .attr('transform', `rotate(-90,${w + 28},${h / 2})`).text('Gas (bar)');
 
-    // Legend
-    const legendData = [
-        { color: '#58a6ff', dash: false, label: 'Depth' },
-        { color: '#3fb950', dash: false, label: 'Ascent' },
-        { color: '#bc8cff', dash: false, label: 'Gas' },
-        { color: '#f85149', dash: true,  label: 'Ceiling' },
-        { color: '#d29922', dash: false, label: 'Safety' },
-        { color: '#d29922', dash: true,  label: 'Reserve' }
+    // Right 2: TTS (min)
+    const ttsTicks = d3.range(0, ttsTop + 1, ttsTop <= 10 ? 2 : ttsTop <= 30 ? 5 : 10);
+    g.append('g').attr('transform', `translate(${w + 55},0)`)
+        .call(d3.axisRight(yTTS).tickValues(ttsTicks).tickFormat(d => d + '').tickSize(4))
+        .call(g => g.selectAll('text').attr('fill', '#f0883e').attr('font-size', '9px'))
+        .call(g => g.selectAll('line, path').attr('stroke', '#30363d'));
+    g.append('text').attr('x', w + 83).attr('y', h / 2)
+        .attr('text-anchor', 'middle').attr('fill', '#f0883e').attr('font-size', '9px')
+        .attr('transform', `rotate(-90,${w + 83},${h / 2})`).text('TTS (min)');
+
+    // ── Clickable legend ──────────────────────────────────────
+    const legendItems = [
+        { label: 'Depth',   color: '#58a6ff', dash: '',    group: gDepth },
+        { label: 'Ceiling', color: '#f85149', dash: '4,3', group: gCeiling },
+        { label: 'TTS',     color: '#f0883e', dash: '5,3', group: gTTS },
+        { label: 'Gas',     color: '#bc8cff', dash: '',    group: gGas },
+        { label: 'Reserve', color: '#d29922', dash: '6,4', group: gReserve },
     ];
-    let lx = 8;
     const lg = svg.append('g').attr('transform', `translate(${margin.left},12)`);
-    legendData.forEach(item => {
-        lg.append('line').attr('x1', lx).attr('x2', lx + 14).attr('y1', 0).attr('y2', 0)
+    let lx = 4;
+    legendItems.forEach(item => {
+        const li = lg.append('g').attr('transform', `translate(${lx},0)`)
+            .style('cursor', 'pointer')
+            .on('click', function() {
+                const grp = item.group;
+                const hidden = grp.style('display') === 'none';
+                grp.style('display', hidden ? null : 'none');
+                d3.select(this).attr('opacity', hidden ? 1 : 0.35);
+            });
+        li.append('line').attr('x1', 0).attr('x2', 14).attr('y1', 0).attr('y2', 0)
             .attr('stroke', item.color).attr('stroke-width', 2)
-            .attr('stroke-dasharray', item.dash ? '3,2' : 'none');
-        lg.append('text').attr('x', lx + 17).attr('y', 3)
+            .attr('stroke-dasharray', item.dash || 'none');
+        li.append('text').attr('x', 17).attr('y', 3)
             .attr('fill', '#8b949e').attr('font-size', '9px').text(item.label);
-        lx += item.label.length * 6 + 28;
+        lx += item.label.length * 5.5 + 26;
     });
 
-    // Interactive tooltip + crosshair
-    const tooltip = d3.select(el).append('div')
+    // ── Tooltip + crosshair ───────────────────────────────────
+    const tooltip  = d3.select(el).append('div')
         .attr('class', 'dive-tooltip').style('display', 'none');
     const crosshair = g.append('line')
         .attr('y1', 0).attr('y2', h)
@@ -951,13 +1050,14 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
         .attr('stroke-dasharray', '3,3').style('display', 'none');
     const dotD = g.append('circle').attr('r', 4).attr('fill', '#58a6ff').style('display', 'none');
     const dotG = g.append('circle').attr('r', 4).attr('fill', '#bc8cff').style('display', 'none');
+    const dotT = g.append('circle').attr('r', 4).attr('fill', '#f0883e').style('display', 'none');
 
     svg.append('rect')
         .attr('x', margin.left).attr('y', margin.top).attr('width', w).attr('height', h)
         .attr('fill', 'none').attr('pointer-events', 'all')
         .on('mousemove', function(event) {
             const [mx] = d3.pointer(event, g.node());
-            const tVal = x.invert(Math.max(0, Math.min(w, mx)));
+            const tVal   = x.invert(Math.max(0, Math.min(w, mx)));
             const bisect = d3.bisector(d => d.time).left;
             let idx = bisect(timeline, tVal, 1);
             if (idx >= timeline.length) idx = timeline.length - 1;
@@ -965,28 +1065,32 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
             const p = timeline[idx];
 
             crosshair.attr('x1', x(p.time)).attr('x2', x(p.time)).style('display', null);
-            dotD.attr('cx', x(p.time)).attr('cy', yDepth(p.depth)).style('display', null);
-            dotG.attr('cx', x(p.time)).attr('cy', yGas(Math.max(0, p.tankPressure))).style('display', null);
+            dotD.attr('cx', x(p.time)).attr('cy', yDepth(p.depth)).style('display', gDepth.style('display') !== 'none' ? null : 'none');
+            dotG.attr('cx', x(p.time)).attr('cy', yGas(Math.max(0, p.tankPressure))).style('display', gGas.style('display') !== 'none' ? null : 'none');
+            dotT.attr('cx', x(p.time)).attr('cy', yTTS(p.tts || 0)).style('display', gTTS.style('display') !== 'none' ? null : 'none');
 
             const gasClr = p.tankPressure < (reserveBar || 0) ? '#d29922' : '#bc8cff';
+            const ttsClr = (p.tts || 0) > 30 ? '#f85149' : (p.tts || 0) > 10 ? '#d29922' : '#f0883e';
             tooltip.html(
                 `<strong>${fmtTime(p.time)}</strong> — <span style="color:${phaseLineColors[p.phase]||'#58a6ff'}">${p.phase}</span><br>` +
                 `Depth: <strong>${p.depth.toFixed(1)}m</strong>  ·  ` +
                 `Gas: <strong style="color:${gasClr}">${Math.max(0, p.tankPressure).toFixed(0)} bar</strong><br>` +
                 `NDL: <span style="color:${p.ndl<=0?'#f85149':p.ndl<=5?'#d29922':'#3fb950'}">${p.ndl >= 999 ? '∞' : p.ndl + ' min'}</span>  ·  ` +
-                `Ceiling: ${p.ceiling.toFixed(1)}m`
+                `Ceiling: ${p.ceiling.toFixed(1)}m<br>` +
+                `TTS: <strong style="color:${ttsClr}">${Math.ceil(p.tts || 0)} min</strong>`
             ).style('display', null);
 
             const rect = el.getBoundingClientRect();
             let tx = event.clientX - rect.left + 14;
             let ty = event.clientY - rect.top - 10;
-            if (tx + 190 > W) tx -= 210;
+            if (tx + 200 > W) tx -= 220;
             tooltip.style('left', tx + 'px').style('top', ty + 'px');
         })
         .on('mouseleave', function() {
             crosshair.style('display', 'none');
             dotD.style('display', 'none');
             dotG.style('display', 'none');
+            dotT.style('display', 'none');
             tooltip.style('display', 'none');
         });
 }
@@ -1387,8 +1491,7 @@ function renderSegmentPreview() {
 function calculateDive() {
     if (waypoints.length === 0) return toast('Add at least one waypoint', 'error');
     const cfg = getConfig();
-    if (cfg.gfLow >= cfg.gfHigh) return toast('GF-Low must be less than GF-High', 'error');
-    if (cfg.gfLow < 5 || cfg.gfHigh > 100) return toast('GF values out of range', 'error');
+    if (cfg.gfLow < 5 || cfg.gfLow > 100 || cfg.gfHigh < 5 || cfg.gfHigh > 100) return toast('GF values must be between 5% and 100%', 'error');
     if (cfg.fO2 < 21 || cfg.fO2 > 100) return toast('O₂ fraction must be between 21% and 100%', 'error');
 
     // Check MOD against max waypoint depth
@@ -1521,7 +1624,9 @@ function displayResults(res) {
         { label: s.inDeco ? 'Deco Time' : 'Gas Used',
           value: s.inDeco ? s.totalDecoTime + '' : s.gasUsed.toFixed(0),
           unit: s.inDeco ? 'min' : 'L (sfc)',
-          cls: s.inDeco ? 'danger' : '' }
+          cls: s.inDeco ? 'danger' : '' },
+        { label: 'Max TTS', value: Math.ceil(s.maxTTS) + '', unit: 'min',
+          cls: s.maxTTS > 30 ? 'danger' : s.maxTTS > 10 ? 'warning' : '' }
     ];
     grid.innerHTML = cards.map(c => {
         const valueColor = c.cls === 'danger' ? 'text-gh-red' : c.cls === 'warning' ? 'text-gh-yellow' : 'text-gh-green';
