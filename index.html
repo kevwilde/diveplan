@@ -177,6 +177,11 @@
                         <h3 class="text-[0.9em] text-gh-muted mb-2">Tissue Loading (end of dive)</h3>
                         <div id="tissueBars" class="mb-4"></div>
                     </div>
+                    <div class="bg-gh-dark border border-gh-border rounded p-3 mb-4">
+                        <h3 class="text-[0.9em] text-gh-muted mb-2">Tissue Gradient Factors</h3>
+                        <div id="tissueCompTabs" class="flex flex-wrap gap-0.5 mb-2 border-b border-gh-border pb-1.5"></div>
+                        <div id="tissueGradientChart" class="w-full relative"></div>
+                    </div>
                     <div class="flex border-b border-gh-border mb-2.5">
                         <button class="tab-btn bg-transparent border-0 text-gh-accent px-3.5 py-2 cursor-pointer border-b-2 border-b-gh-accent text-[0.85em]" onclick="switchTab(event,'tabTimeline')">Timeline</button>
                         <button class="tab-btn bg-transparent border-0 text-gh-muted px-3.5 py-2 cursor-pointer border-b-2 border-b-transparent text-[0.85em] hover:text-gh-text" onclick="switchTab(event,'tabGas')">Gas Profile</button>
@@ -315,10 +320,12 @@ class DecoModel {
     }
 
     // Ceiling pressure for tissue i at gradient factor gf
-    // Returns the minimum tolerable ambient pressure (bar)
+    // GF measures fraction of range from N2 equilibrium to M-value:
+    //   P_limit = equil(P_amb) + gf * (M(P_amb) - equil(P_amb))
+    // Solving for P_amb: P_amb = (pN2 - gf*a + P_H2O*F_N2*(1-gf)) / (F_N2*(1-gf) + gf/b)
     tissueCeiling(i, gf) {
         const {a, b} = ZHL16C[i];
-        return (this.pN2[i] - a * gf) / (gf / b - gf + 1);
+        return (this.pN2[i] - gf * a + P_H2O * F_N2 * (1 - gf)) / (F_N2 * (1 - gf) + gf / b);
     }
 
     // Overall ceiling depth (m) using given gradient factor
@@ -345,9 +352,9 @@ class DecoModel {
             const k = Math.LN2 / ht;
             const gf = this.gfHigh;
 
-            // Maximum tissue N2 for direct ascent to surface:
-            // P_tissue_limit = P_sfc * (1 - gf + gf/b) + gf * a
-            const pLimit = P_SFC * (1 - gf + gf / b) + gf * a;
+            // Maximum tissue N2 for direct ascent to surface using GF-High:
+            // P_limit = P_N2_SFC + gf * (M(P_SFC) - P_N2_SFC)
+            const pLimit = P_N2_SFC + gf * (P_SFC / b + a - P_N2_SFC);
 
             // Already past limit?
             if (this.pN2[i] >= pLimit) return 0;
@@ -372,7 +379,7 @@ class DecoModel {
         let maxLoad = -Infinity, maxIdx = 0;
         for (let i = 0; i < 16; i++) {
             const {a, b} = ZHL16C[i];
-            const mGF = P_SFC + this.gfHigh * (a + P_SFC / b - P_SFC);
+            const mGF = P_N2_SFC + this.gfHigh * (P_SFC / b + a - P_N2_SFC);
             const load = (this.pN2[i] - P_N2_SFC) / (mGF - P_N2_SFC) * 100;
             if (load > maxLoad) { maxLoad = load; maxIdx = i; }
         }
@@ -383,7 +390,7 @@ class DecoModel {
     tissueData() {
         return ZHL16C.map((c, i) => {
             const {a, b} = c;
-            const mGF = P_SFC + this.gfHigh * (a + P_SFC / b - P_SFC);
+            const mGF = P_N2_SFC + this.gfHigh * (P_SFC / b + a - P_N2_SFC);
             const load = (this.pN2[i] - P_N2_SFC) / (mGF - P_N2_SFC) * 100;
             const ceilDepth = Math.max(0, (this.tissueCeiling(i, this.gfHigh) - P_SFC) * M_PER_BAR);
             return {
@@ -452,15 +459,17 @@ class DiveSimulator {
                 ndl, ceiling: ceil,
                 leadIdx: lead.index + 1,
                 leadLoad: lead.loading,
-                inDeco: ceil > 0.1
+                inDeco: ceil > 0.1,
+                pN2: Array.from(this.model.pN2)
             });
         };
 
         // Process a segment: linear depth change or constant depth
+        const DT = 5 / 60;  // 5-second timestep in minutes
         const processSegment = (startD, endD, duration, phase) => {
             if (duration <= 0) return;
             const depthRate = (endD - startD) / duration;
-            const steps = Math.max(1, Math.ceil(duration));
+            const steps = Math.max(1, Math.ceil(duration / DT));
             const dt = duration / steps;
 
             for (let s = 0; s < steps; s++) {
@@ -520,11 +529,12 @@ class DiveSimulator {
         // Check if diver can surface directly using GF_high (normal NDL check)
         const decoStops = [];
         const ceilWithGfHigh = this.model.ceilingDepth(this.model.gfHigh);
+        let firstStopDepth = null;  // exposed in result for GF chart anchoring
 
         if (ceilWithGfHigh > 0.1 && prevDepth > 0.1) {
             // Deco is required: use GF_low for first stop depth
             const ceilWithGfLow = this.model.ceilingDepth(this.model.gfLow);
-            const firstStopDepth = Math.max(3, Math.ceil(ceilWithGfLow / 3) * 3);
+            firstStopDepth = Math.max(3, Math.ceil(ceilWithGfLow / 3) * 3);
 
             // Ascend from current depth to first stop
             if (prevDepth > firstStopDepth + 0.1) {
@@ -558,23 +568,24 @@ class DiveSimulator {
 
                 // Wait at this stop until ceiling clears to next stop depth
                 let stopTime = 0;
-                const maxStopTime = 120; // safety limit
+                const maxStopTime = 120; // safety limit (minutes)
                 while (stopTime < maxStopTime) {
                     const ceilCheck = this.model.ceilingDepth(gfAtNext);
                     if (ceilCheck <= Math.max(0, nextStopDepth)) break;
-                    this.model.loadConstant(stopDepth, 1);
+                    this.model.loadConstant(stopDepth, DT);
                     const pamb = this.model.pAmb(stopDepth);
-                    const gasStep = this.rmv * pamb * 1;
+                    const gasStep = this.rmv * pamb * DT;
                     tp -= gasStep / this.tankVol;
                     gasUsed += gasStep;
                     d = stopDepth;
-                    t += 1;
-                    stopTime += 1;
+                    t += DT;
+                    stopTime += DT;
                     record('deco');
                 }
 
                 if (stopTime > 0) {
-                    decoStops.push({ depth: stopDepth, time: stopTime });
+                    const stopTimeMins = Math.ceil(stopTime);  // round up to whole minutes
+                    decoStops.push({ depth: stopDepth, time: stopTimeMins });
                     segments.push({
                         phase: 'deco', from: stopDepth, to: stopDepth,
                         rate: 0, duration: stopTime
@@ -654,6 +665,7 @@ class DiveSimulator {
             gasExceededTime,
             ooaTime,
             ooaDepth,
+            firstStopDepth,
             summary: {
                 maxDepth,
                 totalTime: t,
@@ -670,7 +682,9 @@ class DiveSimulator {
                 reserveBar,
                 usableGas,
                 gasExceeded,
-                ooa: ooaTime !== null
+                ooa: ooaTime !== null,
+                gfHigh: this.model.gfHigh,
+                gfLow:  this.model.gfLow
             }
         };
     }
@@ -968,10 +982,207 @@ function drawTissueBars(containerId, tissues) {
 }
 
 // ============================================================
+// TISSUE GRADIENT FACTOR CHART (M-value / Ambient / GF / Path)
+// ============================================================
+function drawTissueGradientChart(el, ci, timeline, gfHigh, gfLow, firstStopDepth) {
+    if (!el || !timeline || !timeline.length) return;
+    el.innerHTML = '';
+
+    const { a, b } = ZHL16C[ci];
+
+    const divePoints = timeline
+        .filter(p => p.pN2)
+        .map(p => ({ x: p.pAmb, y: p.pN2[ci] }));
+    if (!divePoints.length) return;
+
+    const margin = { top: 28, right: 28, bottom: 44, left: 58 };
+    const w = (el.clientWidth || 600) - margin.left - margin.right;
+    const h = w;  // square plot area
+    const W = w + margin.left + margin.right;
+    const H = h + margin.top + margin.bottom;
+
+    const svg = d3.select(el).append('svg')
+        .attr('width', W).attr('height', H)
+        .style('background', '#0d1117').style('border-radius', '4px');
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Clip path so data lines don't bleed into the margin areas
+    const clipId = `tgcp-${ci}`;
+    svg.append('defs').append('clipPath').attr('id', clipId)
+        .append('rect').attr('width', w).attr('height', h);
+    const gc = g.append('g').attr('clip-path', `url(#${clipId})`);
+
+    const pAmbMax  = d3.max(divePoints, d => d.x);
+    const axisMin  = 0;
+    const axisMax  = pAmbMax * 1.06;
+
+    const x = d3.scaleLinear().domain([axisMin, axisMax]).range([0, w]);
+    const y = d3.scaleLinear().domain([axisMin, axisMax]).range([h, 0]);
+
+    // Grid
+    gc.selectAll('.tg-gv').data(x.ticks(6)).enter().append('line')
+        .attr('x1', d => x(d)).attr('x2', d => x(d)).attr('y1', 0).attr('y2', h)
+        .attr('stroke', '#21262d').attr('stroke-width', 0.5);
+    gc.selectAll('.tg-gh').data(y.ticks(6)).enter().append('line')
+        .attr('x1', 0).attr('x2', w).attr('y1', d => y(d)).attr('y2', d => y(d))
+        .attr('stroke', '#21262d').attr('stroke-width', 0.5);
+
+    // Parametric range for line functions — strictly clipped to axis bounds
+    const pts = d3.range(201).map(i => axisMin + (axisMax - axisMin) * i / 200);
+    const pathFrom = (yFn) => d3.line()
+        .x(p => x(p)).y(p => y(yFn(p)))
+        .defined(p => { const v = yFn(p); return isFinite(v) && v >= axisMin && v <= axisMax; })(pts);
+
+    // GF line: straight line between two anchor points.
+    // GF% of distance from N2 equilibrium line to M-value line:
+    //   at surface:    Y = equil(P_SFC)      + GFHigh * (M(P_SFC)      - equil(P_SFC))
+    //   at first stop: Y = equil(pFirstStop) + GFLow  * (M(pFirstStop) - equil(pFirstStop))
+    const pFirstStop  = firstStopDepth != null ? P_SFC + firstStopDepth / 10 : pAmbMax;
+    const equil       = p => (p - P_H2O) * F_N2;
+    const Mval        = p => p / b + a;
+    const gfLineAtSfc = equil(P_SFC)      + gfHigh * (Mval(P_SFC)      - equil(P_SFC));
+    const gfLineAtFS  = equil(pFirstStop) + gfLow  * (Mval(pFirstStop) - equil(pFirstStop));
+    const gfLineFn    = p => gfLineAtSfc + (gfLineAtFS - gfLineAtSfc) * (p - P_SFC) / (pFirstStop - P_SFC);
+
+    // Safe zone fill: between ambient line and GF line
+    const areaGen = d3.area()
+        .x(p => x(p))
+        .y0(p => y(p))
+        .y1(p => y(gfLineFn(p)))
+        .defined(p => {
+            const top = gfLineFn(p);
+            return isFinite(top) && top >= axisMin && top <= axisMax;
+        });
+    gc.append('path').datum(pts)
+        .attr('fill', 'rgba(248,81,73,0.06)').attr('d', areaGen);
+
+    // 1. Inspired N₂ equilibrium line (green): max tissue loading on air at depth
+    //    P_tissue = (P_amb - P_H2O) * F_N2  — tissues start here and can never exceed it on-gassing
+    gc.append('path').attr('fill', 'none').attr('stroke', '#3fb950')
+        .attr('stroke-width', 1.5).attr('d', pathFrom(p => (p - P_H2O) * F_N2));
+
+    // 2. M-value line (orange): P_tissue = P_amb/b + a
+    gc.append('path').attr('fill', 'none').attr('stroke', '#d29922')
+        .attr('stroke-width', 1.5).attr('d', pathFrom(p => p / b + a));
+
+    // 3. GF line (red dotted): linear from GFLow@depth to GFHigh@surface
+    gc.append('path').attr('fill', 'none').attr('stroke', '#f85149')
+        .attr('stroke-width', 1.5).attr('stroke-dasharray', '5,3')
+        .attr('d', pathFrom(gfLineFn));
+
+    // 4. Dive path (blue)
+    gc.append('path').attr('fill', 'none').attr('stroke', '#58a6ff').attr('stroke-width', 1.5)
+        .attr('d', d3.line().x(d => x(d.x)).y(d => y(d.y))(divePoints));
+
+    // 5. Deco stop markers — one dot per stop depth at the moment the stop begins,
+    //    labelled with the leading tissue that caused it
+    const decoEntries = [];
+    const seenDepths = new Set();
+    for (const p of timeline) {
+        if (p.phase === 'deco' && p.pN2 && !seenDepths.has(p.depth)) {
+            seenDepths.add(p.depth);
+            decoEntries.push(p);
+        }
+    }
+    decoEntries.forEach(p => {
+        const cx = x(p.pAmb);
+        const cy = y(p.pN2[ci]);
+        // Skip if outside plot area
+        if (p.pAmb < axisMin || p.pAmb > axisMax || p.pN2[ci] < axisMin || p.pN2[ci] > axisMax) return;
+        gc.append('circle').attr('cx', cx).attr('cy', cy).attr('r', 5)
+            .attr('fill', '#f85149').attr('stroke', '#0d1117').attr('stroke-width', 1.5);
+        // Leading tissue label (offset slightly so it doesn't overlap the dot)
+        gc.append('text').attr('x', cx + 7).attr('y', cy - 6)
+            .attr('fill', '#f85149').attr('font-size', '9px').attr('font-weight', 'bold')
+            .text(`C${p.leadIdx}`);
+    });
+
+    // Start dot (surface) and end dot
+    const first = divePoints[0], last = divePoints[divePoints.length - 1];
+    gc.append('circle').attr('cx', x(first.x)).attr('cy', y(first.y)).attr('r', 3)
+        .attr('fill', '#58a6ff').attr('opacity', 0.7);
+    gc.append('circle').attr('cx', x(last.x)).attr('cy', y(last.y)).attr('r', 4)
+        .attr('fill', '#58a6ff').attr('stroke', '#0d1117').attr('stroke-width', 1.5);
+
+    // Axes (on g, not gc — not clipped)
+    g.append('g').attr('transform', `translate(0,${h})`)
+        .call(d3.axisBottom(x).ticks(6).tickFormat(d => d.toFixed(1)))
+        .call(ax => ax.selectAll('text').attr('fill', '#8b949e').attr('font-size', '10px'))
+        .call(ax => ax.selectAll('line, path').attr('stroke', '#30363d'));
+    g.append('g')
+        .call(d3.axisLeft(y).ticks(6).tickFormat(d => d.toFixed(2)))
+        .call(ax => ax.selectAll('text').attr('fill', '#8b949e').attr('font-size', '10px'))
+        .call(ax => ax.selectAll('line, path').attr('stroke', '#30363d'));
+
+    // Axis labels
+    g.append('text').attr('x', w / 2).attr('y', h + 38)
+        .attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', '10px')
+        .text('Ambient Pressure (bar)');
+    g.append('text').attr('transform', 'rotate(-90)').attr('x', -h / 2).attr('y', -46)
+        .attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', '10px')
+        .text('Tissue N₂ Pressure (bar)');
+
+    // Compartment info (top-left) + first stop anchor note
+    const anchorNote = firstStopDepth != null ? ` · GF anchor: ${firstStopDepth}m` : '';
+    g.append('text').attr('x', 2).attr('y', -10)
+        .attr('fill', '#8b949e').attr('font-size', '9px')
+        .text(`C${ci + 1} · ${ZHL16C[ci].ht} min half-time · a=${a.toFixed(4)} · b=${b.toFixed(4)}${anchorNote}`);
+
+    // Legend (top-right, horizontal)
+    const legendItems = [
+        { color: '#3fb950', dash: '',    label: 'N₂ equilibrium' },
+        { color: '#d29922', dash: '',    label: 'M-value' },
+        { color: '#f85149', dash: '5,3', label: `GF ${Math.round(gfLow*100)}/${Math.round(gfHigh*100)}` },
+        { color: '#58a6ff', dash: '',    label: 'Dive path' },
+    ];
+    let lx = 8;
+    const lg = svg.append('g').attr('transform', `translate(${margin.left},12)`);
+    legendItems.forEach(item => {
+        lg.append('line').attr('x1', lx).attr('x2', lx + 14).attr('y1', 0).attr('y2', 0)
+            .attr('stroke', item.color).attr('stroke-width', 2)
+            .attr('stroke-dasharray', item.dash || 'none');
+        lg.append('text').attr('x', lx + 17).attr('y', 3)
+            .attr('fill', '#8b949e').attr('font-size', '9px').text(item.label);
+        lx += item.label.length * 6 + 28;
+    });
+}
+
+function setupTissueGradientTabs(timeline, gfHigh, gfLow, firstStopDepth) {
+    const container = document.getElementById('tissueCompTabs');
+    const chartEl   = document.getElementById('tissueGradientChart');
+    if (!container || !chartEl) return;
+    container.innerHTML = '';
+
+    function activate(ci) {
+        container.querySelectorAll('.comp-tab-btn').forEach((b, j) => {
+            const on = j === ci;
+            b.style.color = on ? '#58a6ff' : '#8b949e';
+            b.style.borderBottomColor = on ? '#58a6ff' : 'transparent';
+        });
+        drawTissueGradientChart(chartEl, ci, timeline, gfHigh, gfLow, firstStopDepth);
+        _tgRedraw = () => drawTissueGradientChart(chartEl, ci, timeline, gfHigh, gfLow, firstStopDepth);
+    }
+
+    ZHL16C.forEach((cmp, ci) => {
+        const btn = document.createElement('button');
+        btn.className = 'comp-tab-btn';
+        btn.style.cssText = 'background:none;border:none;border-bottom:2px solid transparent;' +
+            'color:#8b949e;padding:3px 7px;cursor:pointer;font-size:0.78em;font-family:inherit;';
+        btn.textContent = `C${ci + 1}`;
+        btn.title = `Compartment ${ci + 1} · ${cmp.ht} min half-time`;
+        btn.addEventListener('click', () => activate(ci));
+        container.appendChild(btn);
+    });
+
+    activate(0);
+}
+
+// ============================================================
 // UI STATE
 // ============================================================
 let waypoints = [];
 let lastResult = null;
+let _tgRedraw  = null;  // redraws active tissue gradient compartment on resize
 
 function getConfig() {
     return {
@@ -1224,6 +1435,9 @@ function displayResults(res) {
     // Tissue bars
     drawTissueBars('tissueBars', res.tissues);
 
+    // Tissue gradient factor charts
+    setupTissueGradientTabs(res.timeline, s.gfHigh, s.gfLow, res.firstStopDepth);
+
     // Timeline table — include phase coloring for deco/safety
     const tl = res.timeline;
     const phaseColor = p => {
@@ -1405,6 +1619,7 @@ document.getElementById('safetyStopEnabled').addEventListener('change', () => {
 // Handle window resize for chart
 window.addEventListener('resize', () => {
     if (lastResult) drawDepthChart(document.getElementById('depthChart'), lastResult.timeline, lastResult.ndlExceededTime, lastResult.gasExceededTime, lastResult.summary.reserveBar, lastResult.segments, lastResult.ooaTime, lastResult.ooaDepth);
+    if (_tgRedraw) _tgRedraw();
 });
 </script>
 </body>
