@@ -63,6 +63,21 @@
         <div>
             <div class="bg-gh-panel border border-gh-border rounded-md p-4">
                 <h2 class="text-gh-accent text-[1.1em] font-semibold mb-3 pb-2 border-b border-gh-border">⚙️ Dive Settings</h2>
+                <div class="mb-2.5">
+                    <label class="block text-[0.8em] text-gh-muted mb-0.5">Gas Mix</label>
+                    <select id="gasPreset" onchange="updateGasFromPreset()" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]">
+                        <option value="21">Air (21% O₂)</option>
+                        <option value="32">EAN32 (32% O₂)</option>
+                        <option value="36">EAN36 (36% O₂)</option>
+                        <option value="40">EAN40 (40% O₂)</option>
+                        <option value="custom">Custom...</option>
+                    </select>
+                    <div id="customGasRow" class="hidden mt-2">
+                        <label class="block text-[0.8em] text-gh-muted mb-0.5">O₂ % (rest is N₂)</label>
+                        <input type="number" id="fO2" value="21" min="21" max="99" step="1" placeholder="e.g. 28" class="w-full px-2 py-1.5 bg-gh-dark text-gh-text border border-gh-border rounded text-[0.9em]" oninput="updateMODDisplay()">
+                    </div>
+                    <div id="modDisplay" class="text-[0.75em] text-gh-muted mt-1"></div>
+                </div>
                 <div class="flex gap-2.5 mb-2.5">
                     <div class="flex-1">
                         <label class="block text-[0.8em] text-gh-muted mb-0.5">Tank Volume (L)</label>
@@ -161,6 +176,7 @@
                 <p>Add waypoints and click <strong>Calculate</strong> to see your dive plan.</p>
             </div>
             <div id="resultsArea" style="display:none">
+                <div id="modBanner"></div>
                 <div id="decoBanner"></div>
                 <div id="safetyBanner"></div>
                 <div id="gasBanner"></div>
@@ -232,11 +248,21 @@
 // ============================================================
 const P_SFC     = 1.013;    // surface pressure (bar)
 const P_H2O     = 0.0627;   // water vapor pressure at 37°C (bar)
-const F_N2      = 0.79;     // fraction of N2 in air (simplified; 0.7902 in dry air, but with H2O correction this is conventional)
 const M_PER_BAR = 10.0;     // meters of seawater per bar
+const F_N2_AIR  = 0.79;     // fraction of N2 in air (for surface equilibrium)
 
-// Initial tissue N2 pressure (surface equilibrium with water vapor correction)
-const P_N2_SFC  = (P_SFC - P_H2O) * F_N2;   // ~0.7508 bar
+// Initial tissue N2 pressure (surface equilibrium with water vapor correction, breathing air)
+const P_N2_SFC  = (P_SFC - P_H2O) * F_N2_AIR;   // ~0.7508 bar
+
+// Gas utility functions
+function getFractionN2(fO2Pct) {
+    return (100 - fO2Pct) / 100;
+}
+
+function getMOD(fO2Pct, ppO2Max = 1.4) {
+    const fO2 = fO2Pct / 100;
+    return (ppO2Max / fO2 - 1) * M_PER_BAR;
+}
 
 // ============================================================
 // BÜHLMANN ZHL-16C N2 COMPARTMENT TABLE
@@ -284,9 +310,10 @@ function schreiner(piInit, R, t, k, ptInit) {
 // DECOMPRESSION MODEL CLASS
 // ============================================================
 class DecoModel {
-    constructor(gfLow, gfHigh) {
+    constructor(gfLow, gfHigh, fN2 = F_N2_AIR) {
         this.gfLow  = gfLow  / 100;
         this.gfHigh = gfHigh / 100;
+        this.fN2    = fN2;  // fraction of N2 in breathing gas
         // Tissue N2 pressures (bar), initialized to surface equilibrium
         this.pN2 = new Float64Array(16).fill(P_N2_SFC);
     }
@@ -295,7 +322,7 @@ class DecoModel {
     pAmb(depth) { return P_SFC + depth / M_PER_BAR; }
 
     // Inspired N2 pressure at depth (bar) — accounts for water vapor
-    piN2(depth) { return (this.pAmb(depth) - P_H2O) * F_N2; }
+    piN2(depth) { return (this.pAmb(depth) - P_H2O) * this.fN2; }
 
     // Load tissues at constant depth for t minutes
     loadConstant(depth, t) {
@@ -312,7 +339,7 @@ class DecoModel {
     // t: duration (min)
     loadLinear(startDepth, depthRate, t) {
         const piStart = this.piN2(startDepth);
-        const R = (depthRate / M_PER_BAR) * F_N2;   // bar/min change in inspired N2
+        const R = (depthRate / M_PER_BAR) * this.fN2;   // bar/min change in inspired N2
         for (let i = 0; i < 16; i++) {
             const k = Math.LN2 / ZHL16C[i].ht;
             this.pN2[i] = schreiner(piStart, R, t, k, this.pN2[i]);
@@ -322,10 +349,10 @@ class DecoModel {
     // Ceiling pressure for tissue i at gradient factor gf
     // GF measures fraction of range from N2 equilibrium to M-value:
     //   P_limit = equil(P_amb) + gf * (M(P_amb) - equil(P_amb))
-    // Solving for P_amb: P_amb = (pN2 - gf*a + P_H2O*F_N2*(1-gf)) / (F_N2*(1-gf) + gf/b)
+    // Solving for P_amb: P_amb = (pN2 - gf*a + P_H2O*fN2*(1-gf)) / (fN2*(1-gf) + gf/b)
     tissueCeiling(i, gf) {
         const {a, b} = ZHL16C[i];
-        return (this.pN2[i] - gf * a + P_H2O * F_N2 * (1 - gf)) / (F_N2 * (1 - gf) + gf / b);
+        return (this.pN2[i] - gf * a + P_H2O * this.fN2 * (1 - gf)) / (this.fN2 * (1 - gf) + gf / b);
     }
 
     // Overall ceiling depth (m) using given gradient factor
@@ -405,7 +432,7 @@ class DecoModel {
 
     // Deep copy
     clone() {
-        const c = new DecoModel(this.gfLow * 100, this.gfHigh * 100);
+        const c = new DecoModel(this.gfLow * 100, this.gfHigh * 100, this.fN2);
         c.pN2 = new Float64Array(this.pN2);
         return c;
     }
@@ -426,7 +453,9 @@ class DiveSimulator {
         this.tankVol     = cfg.tankVolume;
         this.tankPress   = cfg.tankPressure;
         this.rmv         = cfg.rmv;
-        this.model       = new DecoModel(cfg.gfLow, cfg.gfHigh);
+        this.fO2         = cfg.fO2;
+        this.fN2         = getFractionN2(cfg.fO2);
+        this.model       = new DecoModel(cfg.gfLow, cfg.gfHigh, this.fN2);
         this.safetyStopEnabled = cfg.safetyStopEnabled;
         this.safetyStopDepth   = cfg.safetyStopDepth || 5;
         this.safetyStopTime    = cfg.safetyStopTime || 5;
@@ -684,7 +713,11 @@ class DiveSimulator {
                 gasExceeded,
                 ooa: ooaTime !== null,
                 gfHigh: this.model.gfHigh,
-                gfLow:  this.model.gfLow
+                gfLow:  this.model.gfLow,
+                fO2: this.fO2,
+                fN2: this.fN2,
+                mod14: getMOD(this.fO2, 1.4),
+                mod16: getMOD(this.fO2, 1.6)
             }
         };
     }
@@ -984,7 +1017,7 @@ function drawTissueBars(containerId, tissues) {
 // ============================================================
 // TISSUE GRADIENT FACTOR CHART (M-value / Ambient / GF / Path)
 // ============================================================
-function drawTissueGradientChart(el, ci, timeline, gfHigh, gfLow, firstStopDepth) {
+function drawTissueGradientChart(el, ci, timeline, gfHigh, gfLow, firstStopDepth, fN2 = F_N2_AIR) {
     if (!el || !timeline || !timeline.length) return;
     el.innerHTML = '';
 
@@ -1038,7 +1071,7 @@ function drawTissueGradientChart(el, ci, timeline, gfHigh, gfLow, firstStopDepth
     //   at surface:    Y = equil(P_SFC)      + GFHigh * (M(P_SFC)      - equil(P_SFC))
     //   at first stop: Y = equil(pFirstStop) + GFLow  * (M(pFirstStop) - equil(pFirstStop))
     const pFirstStop  = firstStopDepth != null ? P_SFC + firstStopDepth / 10 : pAmbMax;
-    const equil       = p => (p - P_H2O) * F_N2;
+    const equil       = p => (p - P_H2O) * fN2;
     const Mval        = p => p / b + a;
     const gfLineAtSfc = equil(P_SFC)      + gfHigh * (Mval(P_SFC)      - equil(P_SFC));
     const gfLineAtFS  = equil(pFirstStop) + gfLow  * (Mval(pFirstStop) - equil(pFirstStop));
@@ -1056,10 +1089,10 @@ function drawTissueGradientChart(el, ci, timeline, gfHigh, gfLow, firstStopDepth
     gc.append('path').datum(pts)
         .attr('fill', 'rgba(248,81,73,0.06)').attr('d', areaGen);
 
-    // 1. Inspired N₂ equilibrium line (green): max tissue loading on air at depth
-    //    P_tissue = (P_amb - P_H2O) * F_N2  — tissues start here and can never exceed it on-gassing
+    // 1. Inspired N₂ equilibrium line (green): max tissue loading at depth
+    //    P_tissue = (P_amb - P_H2O) * fN2  — tissues start here and can never exceed it on-gassing
     gc.append('path').attr('fill', 'none').attr('stroke', '#3fb950')
-        .attr('stroke-width', 1.5).attr('d', pathFrom(p => (p - P_H2O) * F_N2));
+        .attr('stroke-width', 1.5).attr('d', pathFrom(p => (p - P_H2O) * fN2));
 
     // 2. M-value line (orange): P_tissue = P_amb/b + a
     gc.append('path').attr('fill', 'none').attr('stroke', '#d29922')
@@ -1147,7 +1180,7 @@ function drawTissueGradientChart(el, ci, timeline, gfHigh, gfLow, firstStopDepth
     });
 }
 
-function setupTissueGradientTabs(timeline, gfHigh, gfLow, firstStopDepth) {
+function setupTissueGradientTabs(timeline, gfHigh, gfLow, firstStopDepth, fN2 = F_N2_AIR) {
     const container = document.getElementById('tissueCompTabs');
     const chartEl   = document.getElementById('tissueGradientChart');
     if (!container || !chartEl) return;
@@ -1159,8 +1192,8 @@ function setupTissueGradientTabs(timeline, gfHigh, gfLow, firstStopDepth) {
             b.style.color = on ? '#58a6ff' : '#8b949e';
             b.style.borderBottomColor = on ? '#58a6ff' : 'transparent';
         });
-        drawTissueGradientChart(chartEl, ci, timeline, gfHigh, gfLow, firstStopDepth);
-        _tgRedraw = () => drawTissueGradientChart(chartEl, ci, timeline, gfHigh, gfLow, firstStopDepth);
+        drawTissueGradientChart(chartEl, ci, timeline, gfHigh, gfLow, firstStopDepth, fN2);
+        _tgRedraw = () => drawTissueGradientChart(chartEl, ci, timeline, gfHigh, gfLow, firstStopDepth, fN2);
     }
 
     ZHL16C.forEach((cmp, ci) => {
@@ -1189,6 +1222,7 @@ function getConfig() {
         tankVolume:   parseFloat(document.getElementById('tankVolume').value),
         tankPressure: parseFloat(document.getElementById('tankPressure').value),
         rmv:          parseFloat(document.getElementById('rmv').value),
+        fO2:          getSelectedFO2(),
         gfLow:        parseFloat(document.getElementById('gfLow').value),
         gfHigh:       parseFloat(document.getElementById('gfHigh').value),
         descentRate:  parseFloat(document.getElementById('descentRate').value),
@@ -1205,6 +1239,46 @@ function fmtTime(min) {
     const s = Math.round((min - m) * 60);
     return m + ':' + (s < 10 ? '0' : '') + s;
 }
+
+// ============================================================
+// GAS MIX HANDLING
+// ============================================================
+function getSelectedFO2() {
+    const preset = document.getElementById('gasPreset').value;
+    if (preset === 'custom') {
+        return parseFloat(document.getElementById('fO2').value) || 21;
+    }
+    return parseFloat(preset);
+}
+
+function updateGasFromPreset() {
+    const preset = document.getElementById('gasPreset').value;
+    const customRow = document.getElementById('customGasRow');
+    if (preset === 'custom') {
+        customRow.classList.remove('hidden');
+        document.getElementById('fO2').focus();
+    } else {
+        customRow.classList.add('hidden');
+        document.getElementById('fO2').value = preset;
+    }
+    updateMODDisplay();
+}
+
+function updateMODDisplay() {
+    const fO2 = getSelectedFO2();
+    const mod14 = getMOD(fO2, 1.4);
+    const mod16 = getMOD(fO2, 1.6);
+    const modEl = document.getElementById('modDisplay');
+    modEl.innerHTML = `MOD: <span class="text-gh-text">${mod14.toFixed(1)}m</span> (1.4 ppO₂) / <span class="text-gh-text">${mod16.toFixed(1)}m</span> (1.6 ppO₂)`;
+}
+
+function getGasName(fO2) {
+    if (fO2 === 21) return 'Air';
+    return `EAN${fO2}`;
+}
+
+// Initialize MOD display on page load
+document.addEventListener('DOMContentLoaded', updateMODDisplay);
 
 // ============================================================
 // WAYPOINT MANAGEMENT
@@ -1315,6 +1389,14 @@ function calculateDive() {
     const cfg = getConfig();
     if (cfg.gfLow >= cfg.gfHigh) return toast('GF-Low must be less than GF-High', 'error');
     if (cfg.gfLow < 5 || cfg.gfHigh > 100) return toast('GF values out of range', 'error');
+    if (cfg.fO2 < 21 || cfg.fO2 > 100) return toast('O₂ fraction must be between 21% and 100%', 'error');
+
+    // Check MOD against max waypoint depth
+    const maxWpDepth = Math.max(...waypoints.map(w => w.depth));
+    const mod14 = getMOD(cfg.fO2, 1.4);
+    if (maxWpDepth > mod14) {
+        toast(`⚠️ Max depth ${maxWpDepth}m exceeds MOD of ${mod14.toFixed(1)}m for ${getGasName(cfg.fO2)} (1.4 ppO₂)`, 'warning');
+    }
 
     try {
         const sim = new DiveSimulator(cfg);
@@ -1331,6 +1413,22 @@ function calculateDive() {
 
 function displayResults(res) {
     const s = res.summary;
+
+    // MOD exceedance banner
+    const modBanner = document.getElementById('modBanner');
+    const gasName = getGasName(s.fO2);
+    if (s.maxDepth > s.mod14) {
+        const ppO2Max = ((s.maxDepth / M_PER_BAR) + P_SFC) * (s.fO2 / 100);
+        modBanner.innerHTML = `<div class="bg-gh-orange/15 border border-gh-orange rounded-md px-4 py-3 mb-4 flex items-center gap-2.5">
+            <div class="text-2xl">⚠️</div>
+            <div class="flex-1">
+                <strong class="text-gh-orange">MOD EXCEEDED</strong> — Max depth ${s.maxDepth.toFixed(1)}m exceeds MOD of ${s.mod14.toFixed(1)}m for ${gasName}<br>
+                <span class="text-[0.85em] text-gh-muted">ppO₂ at max depth: ${ppO2Max.toFixed(2)} bar (limit: 1.4 bar). Risk of CNS oxygen toxicity!</span>
+            </div>
+        </div>`;
+    } else {
+        modBanner.innerHTML = '';
+    }
 
     // Deco banner
     const decoBanner = document.getElementById('decoBanner');
@@ -1401,8 +1499,12 @@ function displayResults(res) {
 
     // Summary cards
     const grid = document.getElementById('summaryGrid');
+    const modExceeded = s.maxDepth > s.mod14;
     const cards = [
-        { label: 'Max Depth', value: s.maxDepth.toFixed(1), unit: 'm' },
+        { label: 'Gas Mix', value: gasName, unit: `MOD ${s.mod14.toFixed(0)}m`,
+          cls: modExceeded ? 'danger' : '' },
+        { label: 'Max Depth', value: s.maxDepth.toFixed(1), unit: 'm',
+          cls: modExceeded ? 'danger' : '' },
         { label: 'Total Time', value: fmtTime(s.totalTime), unit: '' },
         { label: 'Tank End', value: Math.max(0, s.tankEnd).toFixed(0), unit: 'bar',
           cls: s.ooa ? 'danger' : s.gasExceeded ? 'danger' : s.tankEnd < s.reserveBar + 10 ? 'warning' : '' },
@@ -1436,7 +1538,7 @@ function displayResults(res) {
     drawTissueBars('tissueBars', res.tissues);
 
     // Tissue gradient factor charts
-    setupTissueGradientTabs(res.timeline, s.gfHigh, s.gfLow, res.firstStopDepth);
+    setupTissueGradientTabs(res.timeline, s.gfHigh, s.gfLow, res.firstStopDepth, s.fN2);
 
     // Timeline table — include phase coloring for deco/safety
     const tl = res.timeline;
@@ -1535,6 +1637,19 @@ function loadDive(id) {
     document.getElementById('descentRate').value   = c.descentRate;
     document.getElementById('ascentRate').value    = c.ascentRate;
     document.getElementById('diveName').value      = dive.name;
+    if (c.fO2 !== undefined) {
+        const presets = ['21', '32', '36', '40'];
+        const fO2str = String(c.fO2);
+        if (presets.includes(fO2str)) {
+            document.getElementById('gasPreset').value = fO2str;
+            document.getElementById('customGasRow').classList.add('hidden');
+        } else {
+            document.getElementById('gasPreset').value = 'custom';
+            document.getElementById('fO2').value = c.fO2;
+            document.getElementById('customGasRow').classList.remove('hidden');
+        }
+        updateMODDisplay();
+    }
     if (c.safetyStopEnabled !== undefined) {
         document.getElementById('safetyStopEnabled').checked = c.safetyStopEnabled;
         document.getElementById('safetyStopDepth').value = c.safetyStopDepth || 5;
@@ -1562,10 +1677,11 @@ function renderSaved() {
     el.innerHTML = saved.sort((a,b) => b.id - a.id).map(d => {
         const maxD = Math.max(...d.waypoints.map(w => w.depth));
         const dt = new Date(d.date).toLocaleDateString();
+        const gas = d.config.fO2 ? getGasName(d.config.fO2) : 'Air';
         return `<div class="flex items-center justify-between p-2 border border-gh-border rounded mb-1 bg-gh-dark">
             <div>
                 <div class="font-medium text-gh-accent text-[0.85em]">${d.name}</div>
-                <div class="text-gh-muted text-[0.75em]">${dt} · ${maxD}m · GF ${d.config.gfLow}/${d.config.gfHigh}</div>
+                <div class="text-gh-muted text-[0.75em]">${dt} · ${maxD}m · ${gas} · GF ${d.config.gfLow}/${d.config.gfHigh}</div>
             </div>
             <div class="flex gap-1">
                 <button class="px-2 py-0.5 text-[0.8em] border border-gh-border rounded cursor-pointer bg-transparent text-gh-text hover:bg-gh-border" onclick="loadDive(${d.id})">Load</button>
@@ -1584,13 +1700,17 @@ function clearAll() {
     renderWaypoints();
     document.getElementById('placeholder').style.display = 'block';
     document.getElementById('resultsArea').style.display = 'none';
+    // Reset gas to Air
+    document.getElementById('gasPreset').value = '21';
+    document.getElementById('customGasRow').classList.add('hidden');
+    updateMODDisplay();
 }
 
 function toast(msg, type) {
     const el = document.getElementById('toast');
     el.textContent = msg;
     el.classList.remove('bg-gh-green/90', 'bg-gh-red/90', 'bg-gh-yellow/90');
-    const colors = { success: 'bg-gh-green/90', error: 'bg-gh-red/90', warn: 'bg-gh-yellow/90' };
+    const colors = { success: 'bg-gh-green/90', error: 'bg-gh-red/90', warning: 'bg-gh-yellow/90', warn: 'bg-gh-yellow/90' };
     el.classList.add(colors[type] || 'bg-gh-green/90');
     el.classList.remove('opacity-0', 'translate-y-2.5');
     el.classList.add('opacity-100', 'translate-y-0');
