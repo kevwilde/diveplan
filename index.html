@@ -847,6 +847,43 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
         .attr('x1', 0).attr('x2', w).attr('y1', d => yDepth(d)).attr('y2', d => yDepth(d))
         .attr('stroke', '#21262d').attr('stroke-width', 0.5);
 
+    // ── Stepped deco ceiling (crosshatch red) ────────────────
+    const decoSamples = timeline.map(p => ({
+        time: p.time,
+        steppedCeiling: p.ceiling > 0 ? Math.ceil(p.ceiling / 3) * 3 : 0,
+    }));
+    const hasDeco = decoSamples.some(d => d.steppedCeiling > 0);
+
+    if (hasDeco) {
+        const defs = svg.append('defs');
+        const pattern = defs.append('pattern')
+            .attr('id', 'deco-crosshatch')
+            .attr('width', 6).attr('height', 6)
+            .attr('patternUnits', 'userSpaceOnUse')
+            .attr('patternTransform', 'rotate(45)');
+        pattern.append('rect').attr('width', 6).attr('height', 6).attr('fill', 'rgba(248,81,73,0.15)');
+        pattern.append('line')
+            .attr('x1', 0).attr('y1', 0).attr('x2', 0).attr('y2', 6)
+            .attr('stroke', 'rgba(248,81,73,0.35)').attr('stroke-width', 1.5);
+
+        const decoArea = d3.area()
+            .x(d => x(d.time))
+            .y0(yDepth(0))
+            .y1(d => yDepth(d.steppedCeiling))
+            .curve(d3.curveStepAfter);
+        g.append('path').datum(decoSamples)
+            .attr('d', decoArea)
+            .attr('fill', 'url(#deco-crosshatch)');
+
+        const decoLine = d3.line()
+            .x(d => x(d.time))
+            .y(d => yDepth(d.steppedCeiling))
+            .curve(d3.curveStepAfter);
+        g.append('path').datum(decoSamples)
+            .attr('d', decoLine)
+            .attr('fill', 'none').attr('stroke', '#f85149').attr('stroke-width', 1.5);
+    }
+
     // ── Toggleable line groups ────────────────────────────────
     const gDepth   = g.append('g');
     const gTTS     = g.append('g');
@@ -1018,21 +1055,26 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
     const legendItems = [
         { label: 'Depth',   color: '#58a6ff', dash: '',    group: gDepth },
         { label: 'Ceiling', color: '#f85149', dash: '4,3', group: gCeiling },
+    ];
+    if (hasDeco) legendItems.push({ label: 'Deco Stops', color: '#f85149', dash: '', noToggle: true });
+    legendItems.push(
         { label: 'TTS',     color: '#f0883e', dash: '5,3', group: gTTS },
         { label: 'Gas',     color: '#bc8cff', dash: '',    group: gGas },
         { label: 'Reserve', color: '#d29922', dash: '6,4', group: gReserve },
-    ];
+    );
     const lg = svg.append('g').attr('transform', `translate(${margin.left},12)`);
     let lx = 4;
     legendItems.forEach(item => {
-        const li = lg.append('g').attr('transform', `translate(${lx},0)`)
-            .style('cursor', 'pointer')
-            .on('click', function() {
-                const grp = item.group;
-                const hidden = grp.style('display') === 'none';
-                grp.style('display', hidden ? null : 'none');
-                d3.select(this).attr('opacity', hidden ? 1 : 0.35);
-            });
+        const li = lg.append('g').attr('transform', `translate(${lx},0)`);
+        if (item.group) {
+            li.style('cursor', 'pointer')
+                .on('click', function() {
+                    const grp = item.group;
+                    const hidden = grp.style('display') === 'none';
+                    grp.style('display', hidden ? null : 'none');
+                    d3.select(this).attr('opacity', hidden ? 1 : 0.35);
+                });
+        }
         li.append('line').attr('x1', 0).attr('x2', 14).attr('y1', 0).attr('y2', 0)
             .attr('stroke', item.color).attr('stroke-width', 2)
             .attr('stroke-dasharray', item.dash || 'none');
@@ -1076,8 +1118,9 @@ function drawDepthChart(container, timeline, ndlExceededTime, gasExceededTime, r
                 `Depth: <strong>${p.depth.toFixed(1)}m</strong>  ·  ` +
                 `Gas: <strong style="color:${gasClr}">${Math.max(0, p.tankPressure).toFixed(0)} bar</strong><br>` +
                 `NDL: <span style="color:${p.ndl<=0?'#f85149':p.ndl<=5?'#d29922':'#3fb950'}">${p.ndl >= 999 ? '∞' : p.ndl + ' min'}</span>  ·  ` +
-                `Ceiling: ${p.ceiling.toFixed(1)}m<br>` +
-                `TTS: <strong style="color:${ttsClr}">${Math.ceil(p.tts || 0)} min</strong>`
+                `Ceiling: ${p.ceiling.toFixed(1)}m` +
+                (hasDeco && decoSamples[idx].steppedCeiling > 0 ? `  ·  Deco Stop: <span style="color:#f85149">${decoSamples[idx].steppedCeiling}m</span>` : '') +
+                `<br>TTS: <strong style="color:${ttsClr}">${Math.ceil(p.tts || 0)} min</strong>`
             ).style('display', null);
 
             const rect = el.getBoundingClientRect();
@@ -1381,8 +1424,62 @@ function getGasName(fO2) {
     return `EAN${fO2}`;
 }
 
-// Initialize MOD display on page load
-document.addEventListener('DOMContentLoaded', updateMODDisplay);
+// ============================================================
+// SETTINGS PERSISTENCE (localStorage)
+// ============================================================
+const SETTINGS_KEY = 'diveplan_settings';
+
+function saveSettings() {
+    const settings = {
+        gasPreset:    document.getElementById('gasPreset').value,
+        fO2:          document.getElementById('fO2').value,
+        tankVolume:   document.getElementById('tankVolume').value,
+        tankPressure: document.getElementById('tankPressure').value,
+        rmv:          document.getElementById('rmv').value,
+        gfLow:        document.getElementById('gfLow').value,
+        gfHigh:       document.getElementById('gfHigh').value,
+        descentRate:  document.getElementById('descentRate').value,
+        ascentRate:   document.getElementById('ascentRate').value,
+        safetyStopEnabled: document.getElementById('safetyStopEnabled').checked,
+        safetyStopDepth:   document.getElementById('safetyStopDepth').value,
+        safetyStopTime:    document.getElementById('safetyStopTime').value,
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function loadSettings() {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return;
+    try {
+        const s = JSON.parse(raw);
+        if (s.tankVolume   !== undefined) document.getElementById('tankVolume').value   = s.tankVolume;
+        if (s.tankPressure !== undefined) document.getElementById('tankPressure').value  = s.tankPressure;
+        if (s.rmv          !== undefined) document.getElementById('rmv').value           = s.rmv;
+        if (s.gfLow        !== undefined) document.getElementById('gfLow').value         = s.gfLow;
+        if (s.gfHigh       !== undefined) document.getElementById('gfHigh').value        = s.gfHigh;
+        if (s.descentRate  !== undefined) document.getElementById('descentRate').value   = s.descentRate;
+        if (s.ascentRate   !== undefined) document.getElementById('ascentRate').value    = s.ascentRate;
+        if (s.safetyStopEnabled !== undefined) document.getElementById('safetyStopEnabled').checked = s.safetyStopEnabled;
+        if (s.safetyStopDepth   !== undefined) document.getElementById('safetyStopDepth').value     = s.safetyStopDepth;
+        if (s.safetyStopTime    !== undefined) document.getElementById('safetyStopTime').value      = s.safetyStopTime;
+        if (s.gasPreset !== undefined) {
+            document.getElementById('gasPreset').value = s.gasPreset;
+            if (s.gasPreset === 'custom') {
+                document.getElementById('fO2').value = s.fO2 || 21;
+                document.getElementById('customGasRow').classList.remove('hidden');
+            } else {
+                document.getElementById('fO2').value = s.gasPreset;
+                document.getElementById('customGasRow').classList.add('hidden');
+            }
+        }
+    } catch (e) { /* ignore corrupt data */ }
+}
+
+// Initialize: load saved settings, then update MOD display
+document.addEventListener('DOMContentLoaded', () => {
+    loadSettings();
+    updateMODDisplay();
+});
 
 // ============================================================
 // WAYPOINT MANAGEMENT
@@ -1830,6 +1927,14 @@ function toast(msg, type) {
 // INIT
 // ============================================================
 renderSaved();
+
+// Persist settings on any input change
+['tankVolume', 'tankPressure', 'rmv', 'gfLow', 'gfHigh',
+ 'descentRate', 'ascentRate', 'safetyStopDepth', 'safetyStopTime', 'fO2'].forEach(id => {
+    document.getElementById(id).addEventListener('input', saveSettings);
+});
+document.getElementById('gasPreset').addEventListener('change', saveSettings);
+document.getElementById('safetyStopEnabled').addEventListener('change', saveSettings);
 
 // Recalculate segment preview when rates change
 ['descentRate', 'ascentRate', 'safetyStopDepth', 'safetyStopTime'].forEach(id => {
